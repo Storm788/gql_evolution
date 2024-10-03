@@ -3,6 +3,7 @@ import datetime
 from sqlalchemy import select
 from functools import cache
 
+from uoishelpers.dataloaders import createIdLoader, createLoadersAuto
 from DBDefinitions import EventModel, EventUserModel
 
 def update(destination, source=None, extraValues={}):
@@ -78,13 +79,13 @@ def createLoaders(asyncSessionMaker):
     class Loaders:
         @property
         @cache
-        def events(self):
-            return createLoader(asyncSessionMaker, EventModel)
+        def EventModel(self):
+            return createIdLoader(asyncSessionMaker, EventModel)
 
         @property
         @cache
-        def eventusers(self):
-            return createLoader(asyncSessionMaker, EventUserModel)
+        def EventUserModel(self):
+            return createIdLoader(asyncSessionMaker, EventUserModel)
         
     return Loaders()
 

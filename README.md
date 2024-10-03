@@ -255,5 +255,5 @@ pytest --cov-report term-missing --cov=DBDefinitions --cov=GraphTypeDefinitions 
 
 To run code in development there is 
 ```
-uvicorn main:app --log-config=log_conf.yaml --reload
+uvicorn main:app --log-config=log_conf.yaml --env-file environment.txt --reload
 ```

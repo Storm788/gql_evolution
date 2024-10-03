@@ -5,5 +5,7 @@ strawberry-graphql
 sqlalchemy
 asyncpg
 
+aiodataloader
+
 
 https://github.com/hrbolek/uoishelpers/archive/refs/heads/main.zip

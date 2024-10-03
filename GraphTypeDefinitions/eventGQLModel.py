@@ -4,7 +4,12 @@ import datetime
 import typing
 import asyncio
 
+from dataclasses import dataclass
+from uoishelpers.resolvers import createInputs
 from utils.Dataloaders import getLoadersFromInfo
+from utils.DBResolvers import DBResolvers
+
+print(dir(DBResolvers), flush=True)
 
 UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".userGQLModel")]
 
@@ -14,13 +19,16 @@ UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".userGQLModel")
 )
 class EventGQLModel:
     @classmethod
+    def getLoader(cls, info: strawberry.types.Info):
+        loaders = getLoadersFromInfo(info)
+        return loaders.EventModel
+    
+    @classmethod
     async def resolve_reference(cls, info: strawberry.types.Info, id: uuid.UUID):
         result = None
         if id is not None: 
-            loaders = getLoadersFromInfo(info)
-            eventloader = loaders.events
-            result = await eventloader.load(id=id)
-
+            loader = cls.getLoader(info)
+            result = await loader.load(id=id)
         return result
 
     @strawberry.field(description="""Primary key""")
@@ -38,6 +46,10 @@ class EventGQLModel:
     @strawberry.field(description="""Moment when the event ends""")
     def enddate(self) -> datetime.datetime:
         return self.enddate
+
+    @strawberry.field(description="""Duration of the event""")
+    def duration(self) -> datetime.timedelta:
+        return self.duration
 
     @strawberry.field(description="""Timestamp / token""")
     def lastchange(self) -> typing.Optional[datetime.datetime]:
@@ -60,15 +72,15 @@ class EventGQLModel:
 
     @strawberry.field(description="""events which are contained by this event (aka all lessons for the semester)""")
     async def sub_events(self, info: strawberry.types.Info) -> typing.List["EventGQLModel"]:
-        loaders = getLoadersFromInfo(info)
-        eventloader = loaders.events
+        eventloader = EventGQLModel.getLoader(info=info)
         result = await eventloader.filter_by(masterevent_id=self.id)
         return result
 
     @strawberry.field(description="""users participating on the event""")
     async def users(self, info: strawberry.types.Info) -> typing.List["UserGQLModel"]:
+        from .userGQLModel import UserGQLModel
         loaders = getLoadersFromInfo(info)
-        loader = loaders.eventusers
+        loader = loaders.EventUserModel
         rows = await loader.filter_by(event_id=self.id)
         
         userids = (row.user_id for row in rows)
@@ -80,6 +92,20 @@ import uuid
 @strawberry.field(description="""returns and event""")
 async def event_by_id(info: strawberry.types.Info, id: uuid.UUID) -> typing.Optional[EventGQLModel]:
     return await EventGQLModel.resolve_reference(info, id)
+
+
+@createInputs
+@dataclass
+class EventInputWhereFilter:
+    id: uuid.UUID
+    name: str
+    startdate: datetime.datetime
+    enddate: datetime.datetime
+    duration: datetime.timedelta
+
+event_page = strawberry.field(
+    description="""events""", 
+    resolver=DBResolvers.EventModel.resolve_page(GQLModel=EventGQLModel, WhereFilterModel=EventInputWhereFilter))
 
 ###################################################################
 #
