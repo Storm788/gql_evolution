@@ -4,6 +4,7 @@ uvicorn[standard]
 strawberry-graphql
 sqlalchemy
 asyncpg
+aiosqlite
 
 aiodataloader
 

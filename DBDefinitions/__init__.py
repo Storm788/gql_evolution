@@ -39,13 +39,20 @@ def ComposeConnectionString():
     """Odvozuje connectionString z promennych prostredi (nebo z Docker Envs, coz je fakticky totez).
     Lze predelat na napr. konfiguracni file.
     """
-    user = os.environ.get("POSTGRES_USER", "postgres")
-    password = os.environ.get("POSTGRES_PASSWORD", "example")
-    database = os.environ.get("POSTGRES_DB", "data")
-    hostWithPort = os.environ.get("POSTGRES_HOST", "localhost:5432")
+    sqlite_connectionstring = "file:sqlite.db?mode=rwc"
+    if os.environ.get("POSTGRES_USER", None) is not None:
+        user = os.environ.get("POSTGRES_USER", "postgres")
+        password = os.environ.get("POSTGRES_PASSWORD", "example")
+        database = os.environ.get("POSTGRES_DB", "data")
+        hostWithPort = os.environ.get("POSTGRES_HOST", "localhost:5432")
 
-    driver = "postgresql+asyncpg"  # "postgresql+psycopg2"
-    connectionstring = f"{driver}://{user}:{password}@{hostWithPort}/{database}"
+        driver = "postgresql+asyncpg"  # "postgresql+psycopg2"
+        
+        connectionstring = f"{driver}://{user}:{password}@{hostWithPort}/{database}"
+    else:
+        connectionstring = sqlite_connectionstring
 
+    connectionstring = os.environ.get("CONNECTION_STRING", connectionstring)
+    
     logging.info(f"CString {database} at {hostWithPort}")
     return connectionstring
