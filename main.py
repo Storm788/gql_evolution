@@ -261,20 +261,135 @@ async def index_page():
             sdl = result["data"]["_service"]["sdl"]
             schema_ast = parse(sdl)
             # sdl = schema.as_str()
-            query = """query userPage($skip: Int, $limit: Int, $orderby: String, $where: UserInputWhereFilter) {
+            query = """
+query userPage($skip: Int, $limit: Int, $orderby: String, $where: UserInputWhereFilter) {
   userPage(skip: $skip, limit: $limit, orderby: $orderby, where: $where) {
-    name
-    givenname
-    middlename
-    email
-    firstname
-    surname
-    valid
-    startdate
-    enddate
-    typeId
-  }
+  ...User
 }
+}
+
+fragment RBACObject on RBACObjectGQLModel {
+  __typename
+  id
+  roles { __typename }
+  currentUserRoles { __typename }
+  # userCanWithState
+  # userCanWithoutState
+  }
+
+fragment Membership on MembershipGQLModel {
+  __typename
+  id
+  lastchange
+  created
+  createdbyId
+  changedbyId
+  rbacobjectId
+  createdby { __typename }
+  changedby { __typename }
+  rbacobject { __typename }
+  userId
+  groupId
+  valid
+  startdate
+  enddate
+  user { __typename }
+  group { __typename }
+  }
+
+fragment Role on RoleGQLModel {
+  __typename
+  id
+  lastchange
+  created
+  createdbyId
+  changedbyId
+  rbacobjectId
+  createdby { __typename }
+  changedby { __typename }
+  rbacobject { __typename }
+  valid
+  deputy
+  startdate
+  enddate
+  roletypeId
+  userId
+  groupId
+  roletype { __typename }
+  user { __typename }
+  group { __typename }
+  }
+
+fragment Group on GroupGQLModel {
+  __typename
+  id
+  lastchange
+  created
+  createdbyId
+  changedbyId
+  rbacobjectId
+  createdby { __typename }
+  changedby { __typename }
+  rbacobject { __typename }
+  name
+  nameEn
+  email
+  abbreviation
+  startdate
+  enddate
+  grouptypeId
+  grouptype { __typename }
+  subgroups { __typename }
+  mastergroupId
+  mastergroup { __typename }
+  path
+  memberships { __typename }
+  roles { __typename }
+  valid
+  mastergroups { __typename }
+  rolesOn { __typename }
+  }
+
+fragment User on UserGQLModel {
+__typename
+id
+lastchange
+created
+createdbyId
+changedbyId
+rbacobjectId
+createdby { __typename }
+changedby { __typename }
+rbacobject {
+  ...RBACObject
+}
+name
+givenname
+middlename
+email
+firstname
+surname
+valid
+startdate
+enddate
+typeId
+memberships {
+  ...Membership
+}
+roles {
+  ...Role
+}
+isThisMe
+rolesOn {
+  ...Role
+}
+gdpr
+fullname
+memberOf {
+  ...Group
+}
+}
+
 """
             result = explain_graphql_query(schema_ast, query)
             response = [

@@ -1,186 +1,179 @@
 def explain_graphql_query(schema_ast, query):
-    from graphql import (
-        parse,
-        build_ast_schema,
-        print_ast
-    )
-    from graphql.language import DocumentNode, FieldNode
-    from graphql.language.visitor import visit
-    from graphql.utilities import TypeInfo
-    from graphql import parse, build_ast_schema, TypeInfo, visit, GraphQLSchema
-    from graphql.language.visitor import visit
+    from graphql import parse, build_ast_schema, print_ast, GraphQLSchema
     from graphql.language.ast import (
-        DocumentNode,
-        FieldNode,
-        SelectionSetNode,
-        OperationDefinitionNode,
+        DocumentNode, FieldNode, SelectionSetNode, OperationDefinitionNode,
+        FragmentDefinitionNode, FragmentSpreadNode, InlineFragmentNode,
     )
-    from graphql.type.definition import (
-        GraphQLObjectType,
-        GraphQLNonNull,
-        GraphQLList,
-        GraphQLInputObjectType
+    from graphql.type import (
+        GraphQLObjectType, GraphQLInterfaceType, GraphQLUnionType,
+        GraphQLNonNull, GraphQLList, GraphQLInputObjectType,
     )
 
+    schema: GraphQLSchema = build_ast_schema(schema_ast, assume_valid=True)
 
-    schema = build_ast_schema(schema_ast, assume_valid=True)
-
-    # map description z AST schématu
-    field_meta: dict[tuple[str,str], str|None] = {}
+    # ---- metadata z AST: popisy fieldů na ObjectType i InterfaceType
+    field_meta: dict[tuple[str, str], str | None] = {}
+    from graphql.language.ast import ObjectTypeDefinitionNode, InterfaceTypeDefinitionNode
     for defn in schema_ast.definitions:
-        from graphql.language.ast import ObjectTypeDefinitionNode
-        if isinstance(defn, ObjectTypeDefinitionNode):
+        if isinstance(defn, (ObjectTypeDefinitionNode, InterfaceTypeDefinitionNode)):
             parent = defn.name.value
             for fld in defn.fields or []:
                 desc = fld.description.value if fld.description else None
                 field_meta[(parent, fld.name.value)] = desc
-                    
 
+    # ---- parse dotazu
+    query_ast: DocumentNode = parse(query)
 
-    # parse → AST (DocumentNode)
-    query_ast = parse(query)
+    # ---- seber definice fragmentů jménem
+    fragments: dict[str, FragmentDefinitionNode] = {
+        d.name.value: d
+        for d in query_ast.definitions
+        if isinstance(d, FragmentDefinitionNode)
+    }
 
-    # vytisknout strom
-    # print(query_ast)
-    # nebo jako JSON
-    import json
-    def node_to_dict(node):
-        # graphql-core AST nodes mají `.to_dict()` na Python 3.10+:
-        return node.to_dict()
-
-    # print(json.dumps(node_to_dict(query_ast), indent=2))
-
-    # zpět na string
-    # print(print_ast(query_ast))
-
+    # ---- utility
     def unwrap_type(gtype):
-        """Strip away NonNull and List wrappers to get the base Named type."""
         while isinstance(gtype, (GraphQLNonNull, GraphQLList)):
             gtype = gtype.of_type
         return gtype
 
     def type_node_to_str(type_node) -> str:
-        """Renders a VariableDefinitionNode.type back to a string."""
-        kind = type_node.kind  # e.g. 'NonNullType', 'ListType', or 'NamedType'
-        if kind in ["NamedType", "named_type"]:
+        k = getattr(type_node, "kind", None) or type_node.kind  # graphql-core používá lower-case
+        if k in ("NamedType", "named_type"):
             return type_node.name.value
-        if kind in ["NonNullType", "non_null_type"]:
+        if k in ("NonNullType", "non_null_type"):
             return f"{type_node_to_str(type_node.type)}!"
-        if kind in ["ListType", "list_type"]:
+        if k in ("ListType", "list_type"):
             return f"[{type_node_to_str(type_node.type)}]"
-        raise ValueError(f"Unknown kind {kind}")
-    
-    def print_query_with_header_comments(query_ast: DocumentNode, schema: GraphQLSchema) -> str:
-        # 1) Gather input (variable) descriptions
-        var_lines: list[str] = []
+        raise ValueError(f"Unknown kind {k}")
 
-        for defn in query_ast.definitions:
-            if isinstance(defn, OperationDefinitionNode) and defn.variable_definitions:
-                # Předpokládáme, že dotaz obsahuje právě jedno root pole, např. userById
-                root_sel = next(
-                    (s for s in defn.selection_set.selections if isinstance(s, FieldNode)),
-                    None
-                )
-                if not root_sel:
-                    continue
+    # ---- @param (stejné jako u tebe; drobná oprava defn.operation)
+    var_lines: list[str] = []
+    for defn in query_ast.definitions:
+        if isinstance(defn, OperationDefinitionNode) and defn.variable_definitions:
+            op = defn.operation.value if hasattr(defn.operation, "value") else defn.operation  # 'query'/'mutation'/'subscription'
+            root_map = {
+                "query": schema.query_type,
+                "mutation": schema.mutation_type,
+                "subscription": schema.subscription_type,
+            }
+            root_type = root_map.get(op)
+            if not root_type:
+                continue
 
-                root_field_name = root_sel.name.value
-                # query_type, mutation_type nebo subscription_type dle defn.operation
-                root_type_map = {
-                    "QUERY":       schema.query_type,
-                    "MUTATION":    schema.mutation_type,
-                    "subscription": schema.subscription_type
-                }
-                root_type = root_type_map[defn.operation.name]
-                root_field_def = root_type.fields.get(root_field_name)
-                # var_lines.append(f"# root args {root_field_def.args}")
-                first_arg_name = next(iter(root_field_def.args))  # získá první klíč (jméno argumentu)
-                first_arg = root_field_def.args[first_arg_name]  # celý argument (GraphQLArgument)
+            # vezmeme 1. root field jen kvůli lookupu inputů (jako v tvém kódu)
+            root_sel = next((s for s in defn.selection_set.selections if isinstance(s, FieldNode)), None)
+            if not root_sel:
+                continue
+            root_field_def = root_type.fields.get(root_sel.name.value) if isinstance(root_type, GraphQLObjectType) else None
+            first_arg_type = None
+            if root_field_def and root_field_def.args:
+                first_arg = root_field_def.args[next(iter(root_field_def.args))]
                 first_arg_type = unwrap_type(first_arg.type)
-                # var_lines.append(f"# first_arg {first_arg_name}: {first_arg}")
-                for var_def in defn.variable_definitions:  # type: VariableDefinitionNode
-                    name     = var_def.variable.name.value     # např. "id"
-                    type_str = type_node_to_str(var_def.type)  # např. "UUID!"
-                    # najdi popis argumentu
-                    desc = None
-                    if isinstance(first_arg_type, GraphQLInputObjectType):
-                        input_fields = first_arg_type.fields  # Dict[str, GraphQLInputField]
-                        # Teď můžeš procházet input_fields podle jmen
-                        for field_name, input_field in input_fields.items():
-                            if field_name != name:
-                                continue
-                            # print(f"Field: {field_name}, Type: {input_field.type}")
-                            desc = input_field.description or "No description"
-                            break
-                    # if root_field_def and name in root_field_def.args:
-                    #     arg_def = root_field_def.args[name]
-                    #     desc = arg_def.description
-                    # očisti whitespace
-                    if desc:
-                        desc = " ".join(desc.split())
-                        var_lines.append(f"# @param {{{type_str}}} {name} - {desc}")
-                    else:
-                        var_lines.append(f"# @param {{{type_str}}} {name} - missing description")
 
+            for var_def in defn.variable_definitions:
+                name = var_def.variable.name.value
+                type_str = type_node_to_str(var_def.type)
+                desc = None
+                if isinstance(first_arg_type, GraphQLInputObjectType):
+                    input_fields = first_arg_type.fields
+                    if name in input_fields:
+                        desc = input_fields[name].description
+                desc = " ".join(desc.split()) if desc else "missing description"
+                var_lines.append(f"# @param {{{type_str}}} {name} - {desc}")
 
-        # 2) Gather output (field) descriptions with full dotted path
-        out_lines: list[str] = []
-        def walk(
-            sel_set: SelectionSetNode,
-            parent_type: GraphQLObjectType,
-            prefix: str
-        ):
-            for sel in sel_set.selections:
-                if not isinstance(sel, FieldNode):
-                    continue
+    # ---- @property (s podporou fragmentů)
+    out_lines: list[str] = []
+    seen: set[tuple[str, str]] = set()  # (path, base_type_name) pro deduplikaci
+
+    def print_field(parent_type, fname: str, path: str):
+        """Vytiskni jeden field (když existuje na parent_type) do out_lines."""
+        if isinstance(parent_type, (GraphQLObjectType, GraphQLInterfaceType)):
+            fld_def = parent_type.fields.get(fname)
+        else:
+            fld_def = None
+
+        if not fld_def:
+            return
+
+        base_type = unwrap_type(fld_def.type)
+        base_name = getattr(base_type, "name", "Object")
+        desc = field_meta.get((parent_type.name, fname))
+        if desc:
+            desc = " ".join(desc.split())
+        else:
+            desc = ""
+        key = (path, base_name)
+        if key in seen:
+            return
+        seen.add(key)
+        out_lines.append(f'# @property {{{base_name}}} {path} - {desc}'.rstrip())
+
+    def walk(sel_set: SelectionSetNode, parent_type, prefix: str):
+        """Rekurzivní průchod selection setem s podporou Field/FragmentSpread/InlineFragment."""
+        if not sel_set:
+            return
+        for sel in sel_set.selections:
+            # 1) Pole
+            if isinstance(sel, FieldNode):
                 fname = sel.name.value
-                path  = f"{prefix}.{fname}" if prefix else fname
-
-                fld_def = parent_type.fields.get(fname)
-                if not fld_def:
+                path = f"{prefix}.{fname}" if prefix else fname
+                # Union nemá vlastní fields -> pole na unionu jdou jen přes inline fragment s typeCondition
+                if isinstance(parent_type, GraphQLUnionType):
+                    # pokud někdo zapsal field přímo na union bez inline fragmentu, přeskoč
                     continue
+                print_field(parent_type, fname, path)
 
-                # unwrap to get the NamedType
-                base_type = unwrap_type(fld_def.type)  # GraphQLNamedType
-                # fetch the description and normalize whitespace
-                desc = field_meta.get((parent_type.name, fname))
-                if desc:
-                    desc = " ".join(desc.split())
-                    # from:
-                    # out_lines.append(f'# @property {{""}} {path} - {desc}')
-                    # to:
-                    out_lines.append(f'# @property {{{base_type.name}}} {path} - {desc}')
+                # rekurze do podvýběru
+                if sel.selection_set:
+                    # po unwrappingu může být child typ Object/Interface/Union
+                    child_type = unwrap_type(
+                        (parent_type.fields.get(fname).type if isinstance(parent_type, (GraphQLObjectType, GraphQLInterfaceType)) else None)
+                    )
+                    if child_type:
+                        walk(sel.selection_set, child_type, path)
 
-                # recurse into nested selections
-                if sel.selection_set and isinstance(base_type, GraphQLObjectType):
-                    walk(sel.selection_set, base_type, path)
+            # 2) Named fragment: ...Frag
+            elif isinstance(sel, FragmentSpreadNode):
+                frag = fragments.get(sel.name.value)
+                if not frag:
+                    continue
+                # typeCondition může změnit parent typ
+                new_parent = parent_type
+                if frag.type_condition:
+                    tname = frag.type_condition.name.value
+                    new_parent = schema.get_type(tname) or parent_type
+                walk(frag.selection_set, new_parent, prefix)
 
-        for defn in query_ast.definitions:
-            if isinstance(defn, OperationDefinitionNode):
-                # print(f"schema: \n{dir(schema)}")
-                root_map = {
-                    "QUERY": schema.query_type,
-                    "MUTATION": schema.mutation_type,
-                    "subscription": schema.subscription_type
-                }
-                root = root_map[defn.operation.name]
+            # 3) Inline fragment: ... on Type { ... } (nebo bez typeCondition = stejné jako parent)
+            elif isinstance(sel, InlineFragmentNode):
+                new_parent = parent_type
+                if sel.type_condition:
+                    tname = sel.type_condition.name.value
+                    new_parent = schema.get_type(tname) or parent_type
+                walk(sel.selection_set, new_parent, prefix)
+
+    # spustit walk od kořene u každé operace
+    for defn in query_ast.definitions:
+        if isinstance(defn, OperationDefinitionNode):
+            op = defn.operation.value if hasattr(defn.operation, "value") else defn.operation
+            root_map = {
+                "query": schema.query_type,
+                "mutation": schema.mutation_type,
+                "subscription": schema.subscription_type,
+            }
+            root = root_map.get(op)
+            if root:
                 walk(defn.selection_set, root, prefix="")
 
-        # 3) Build the header block
-        header = []
-        if var_lines:
-            header.append("# ")
-            header.extend(var_lines)
-        header.append("# @returns {Object}")
-        if out_lines:
-            header.append("# ")
-            header.extend(out_lines)
+    # ---- hlavička + dotaz
+    header = []
+    if var_lines:
+        header.append("# ")
+        header.extend(var_lines)
+    header.append("# @returns {Object}")
+    if out_lines:
+        header.append("# ")
+        header.extend(out_lines)
 
-        # 4) Print the actual query (unmodified) below
-        query_str = print_ast(query_ast)
-
-        return "\n".join(header + ["", query_str])  
-    
-    query_with_header_comments = print_query_with_header_comments(query_ast=query_ast, schema=schema)
-    print(f"query_with_header_comments: \n{query_with_header_comments}")
-    return query_with_header_comments
+    return "\n".join(header + ["", print_ast(query_ast)])
