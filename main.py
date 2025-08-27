@@ -230,6 +230,7 @@ from nicegui import ui, app as nicegui_app, storage, core
 from starlette.middleware.sessions import SessionMiddleware
 nicegui_app.add_middleware(storage.RequestTrackingMiddleware)
 nicegui_app.add_middleware(SessionMiddleware, secret_key='SUPER-SECRET')
+from graphql import parse
 
 @ui.page("/")
 async def index_page():
@@ -256,10 +257,26 @@ async def index_page():
             client = await createGQLClient(username="john.newbie@world.com", password="john.newbie@world.com")
             sdl_query = """query __ApolloGetServiceDefinition__ { _service { sdl } }"""
             result = await client(sdl_query, variables={})
+            print(result)
             sdl = result["data"]["_service"]["sdl"]
+            schema_ast = parse(sdl)
             # sdl = schema.as_str()
-            query = """"""
-            result = explain_graphql_query(sdl, query)
+            query = """query userPage($skip: Int, $limit: Int, $orderby: String, $where: UserInputWhereFilter) {
+  userPage(skip: $skip, limit: $limit, orderby: $orderby, where: $where) {
+    name
+    givenname
+    middlename
+    email
+    firstname
+    surname
+    valid
+    startdate
+    enddate
+    typeId
+  }
+}
+"""
+            result = explain_graphql_query(schema_ast, query)
             response = [
                 {"type": "text", "content": f"I have responded to {question}"},
                 {"type": "md", "content": f"```gql\n{result}\n```"} 

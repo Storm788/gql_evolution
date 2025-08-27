@@ -1,4 +1,4 @@
-def explain_graphql_query(schema_sdl: str, query: str) -> None:
+def explain_graphql_query(schema_ast, query):
     from graphql import (
         parse,
         build_ast_schema,
@@ -19,9 +19,10 @@ def explain_graphql_query(schema_sdl: str, query: str) -> None:
         GraphQLObjectType,
         GraphQLNonNull,
         GraphQLList,
+        GraphQLInputObjectType
     )
 
-    schema_ast = parse(schema_sdl)
+
     schema = build_ast_schema(schema_ast, assume_valid=True)
 
     # map description z AST schématu
@@ -34,73 +35,23 @@ def explain_graphql_query(schema_sdl: str, query: str) -> None:
                 desc = fld.description.value if fld.description else None
                 field_meta[(parent, fld.name.value)] = desc
                     
-    query = """
-query eventPage($skip: Int, $limit: Int, $orderby: String, $where: EventInputFilter) {
-  eventPage(skip: $skip, limit: $limit, orderby: $orderby, where: $where) {
-  ...Event
-}
-}
 
-fragment EventInvitation on EventInvitationGQLModel {
-  __typename
-  id
-  lastchange
-  created
-  createdbyId
-  changedbyId
-  rbacobjectId
-  createdby { __typename }
-  changedby { __typename }
-  rbacobject { __typename }
-  eventId
-  userId
-  stateId
-  event { __typename }
-  user { __typename }
-  }
-
-fragment Event on EventGQLModel {
-__typename
-id
-lastchange
-created
-createdbyId
-changedbyId
-rbacobjectId
-path
-name
-nameEn
-description
-startdate
-enddate
-duration_raw
-valid
-place
-facilityId
-mastereventId
-subevents { __typename }
-userInvitations {
-  ...EventInvitation
-}
-# duration
-}
-    """
 
     # parse → AST (DocumentNode)
     query_ast = parse(query)
 
     # vytisknout strom
-    print(query_ast)
+    # print(query_ast)
     # nebo jako JSON
     import json
     def node_to_dict(node):
         # graphql-core AST nodes mají `.to_dict()` na Python 3.10+:
         return node.to_dict()
 
-    print(json.dumps(node_to_dict(query_ast), indent=2))
+    # print(json.dumps(node_to_dict(query_ast), indent=2))
 
     # zpět na string
-    print(print_ast(query_ast))
+    # print(print_ast(query_ast))
 
     def unwrap_type(gtype):
         """Strip away NonNull and List wrappers to get the base Named type."""
@@ -137,26 +88,39 @@ userInvitations {
                 # query_type, mutation_type nebo subscription_type dle defn.operation
                 root_type_map = {
                     "QUERY":       schema.query_type,
-                    "mutation":    schema.mutation_type,
+                    "MUTATION":    schema.mutation_type,
                     "subscription": schema.subscription_type
                 }
                 root_type = root_type_map[defn.operation.name]
                 root_field_def = root_type.fields.get(root_field_name)
-
+                # var_lines.append(f"# root args {root_field_def.args}")
+                first_arg_name = next(iter(root_field_def.args))  # získá první klíč (jméno argumentu)
+                first_arg = root_field_def.args[first_arg_name]  # celý argument (GraphQLArgument)
+                first_arg_type = unwrap_type(first_arg.type)
+                # var_lines.append(f"# first_arg {first_arg_name}: {first_arg}")
                 for var_def in defn.variable_definitions:  # type: VariableDefinitionNode
                     name     = var_def.variable.name.value     # např. "id"
                     type_str = type_node_to_str(var_def.type)  # např. "UUID!"
                     # najdi popis argumentu
                     desc = None
-                    if root_field_def and name in root_field_def.args:
-                        arg_def = root_field_def.args[name]
-                        desc = arg_def.description
+                    if isinstance(first_arg_type, GraphQLInputObjectType):
+                        input_fields = first_arg_type.fields  # Dict[str, GraphQLInputField]
+                        # Teď můžeš procházet input_fields podle jmen
+                        for field_name, input_field in input_fields.items():
+                            if field_name != name:
+                                continue
+                            # print(f"Field: {field_name}, Type: {input_field.type}")
+                            desc = input_field.description or "No description"
+                            break
+                    # if root_field_def and name in root_field_def.args:
+                    #     arg_def = root_field_def.args[name]
+                    #     desc = arg_def.description
                     # očisti whitespace
                     if desc:
                         desc = " ".join(desc.split())
                         var_lines.append(f"# @param {{{type_str}}} {name} - {desc}")
                     else:
-                        var_lines.append(f"# @param {{{type_str}}} {name}")
+                        var_lines.append(f"# @param {{{type_str}}} {name} - missing description")
 
 
         # 2) Gather output (field) descriptions with full dotted path
@@ -196,7 +160,7 @@ userInvitations {
                 # print(f"schema: \n{dir(schema)}")
                 root_map = {
                     "QUERY": schema.query_type,
-                    "mutation": schema.mutation_type,
+                    "MUTATION": schema.mutation_type,
                     "subscription": schema.subscription_type
                 }
                 root = root_map[defn.operation.name]
