@@ -19,6 +19,8 @@ aiodataloader
 pyjwt[crypto]
 
 nicegui
+fastmcp
+openai
 
 pyinstrument
 prometheus_client
