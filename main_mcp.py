@@ -2,8 +2,10 @@ import typing
 import json
 
 # region mcp
-from fastmcp import FastMCP, Client
 import fastmcp
+from fastmcp import FastMCP, Client
+from fastmcp.tools.tool import ToolResult, TextContent
+
 # MCP server instance
 mcp = FastMCP("My MCP Server")
 
@@ -39,45 +41,73 @@ mcp = FastMCP("My MCP Server")
 )
 async def get_use_tools(tools: list[dict]) -> str:
     
-    toolsstr = json.dumps(tools)
-    prompt = (f"""
-# Instructions
+    toolsstr = json.dumps(tools, indent=2)
+#     prompt = ("""
+# # Instructions
               
-Choose if a tool defined by mcp server will be called or you can respond to user query.
-You can either answer directly or call exactly one tool.
+# Choose if a tool defined by mcp server will be called or you can respond to user query.
+# You can either answer directly or call exactly one tool.
                     
-## Responses
+# ## Responses
               
-Respond in JSON only. If you suggest to call the tool, the response must be in form
+# If you suggest to call the tool, the response must be in form             
+
+# {"action":"tool", "tool":"here place the picked tool name", "arguments": {...} }
+
+# otherwise return your answer in form
+
+# {"action":"respond", "message": "..."}
+
+# Response must be in valid JSON, so it can be directly used to load json from string
               
-```json
-{{"action":"tool", "tool":"NAME", "arguments": {{...}} }}
-```
+# ## Available tools
+              
+# """
+              
+# "```json\n"
+# f"{toolsstr}"
+# "\n```"
+      
+#     )
+    prompt = (
+ "You can either answer directly or call exactly one tool.\n"
+        "Respond in JSON only.\n"
+        "Schema:\n"
+        '{"action":"respond","message":"..."}\n'
+        "or\n"
+        '{"action":"tool","tool":"NAME","arguments":{...}}\n\n'
+        "Available tools:\n\n"
+        f"{tools}"    )
+    prompt = (
+        """You are an API that must respond **only in valid JSON**, never plain text.
 
-otherwise return your answer in form
+You have exactly two options for output schema (choose one):
 
-```json
-{{"action":"respond", "message": "..."}}
-```
+1. Respond directly:
+   {"action": "respond", "message": "<plain natural language answer>"}
 
-## Available tools
+2. Call exactly one tool:
+   {"action": "tool", "tool": "<TOOL_NAME>", "arguments": { ... }}
 
-```json
-{toolsstr}
-```
+Rules:
+- Output must be valid JSON, no extra text or Markdown fences.
+- Choose at most one tool.
+- If unsure, prefer {"action":"respond",...}.
+- Do not invent tools beyond those listed.
+
+Examples:
+
+Q: "Explain what GraphQL is."
+A: {"action":"respond","message":"GraphQL is a query language for APIs that lets clients specify exactly the data they need."}
+
+Q: "Give me all users from the endpoint"
+A: {"action":"tool","tool":"getgraphQLdata","arguments":{"usermessage":"Give me all users"}}
+
+Available tools:
+
 """
-
-       
+f"{tools}" 
     )
-
- # "You can either answer directly or call exactly one tool.\n"
-        # "Respond in JSON only.\n"
-        # "Schema:\n"
-        # '{"action":"respond","message":"..."}\n'
-        # "or\n"
-        # '{"action":"tool","tool":"NAME","arguments":{...}}\n\n'
-        # "Available tools:\n\n"
-        # f"{tools}"    
     return prompt
 
 @mcp.resource(
@@ -229,7 +259,7 @@ async def ask_graphql_endpoint(
     query: str,
     variables: dict,
     ctx: fastmcp.Context
-) -> str:
+) -> ToolResult:
     gqlClient = ctx.get_state("gqlClient")
     if gqlClient is None:
         gqlClient = await createGQLClient(
@@ -242,20 +272,67 @@ async def ask_graphql_endpoint(
         ) 
 
     response_data_set = await gqlClient(query=query, variables=variables)
-    response_error = response_data_set.get("errors") 
-    assert response_error is None, f"During query {query} got response {response_data_set}"
+    response_errors = response_data_set.get("errors") 
+    # assert response_errors is None, f"During query {query} got response {response_data_set}"
+    if response_errors is not None:
+        return ToolResult(
+            content=TextContent(
+                type="text",
+                text=f"During query {query} got response with errors {response_data_set}"
+            ),
+            structured_content={
+                "sourceid": "9e3ab68d-a166-416c-941c-8eb1a87c728f",
+                "errors": response_errors
+            }
+        )
     response_data = response_data_set.get("data")
-    assert response_data is not None, "Probably the graphql endpoint is not running"
+    # assert response_data is not None, "Probably the graphql endpoint is not running"
+    if response_data is None:
+        return ToolResult(
+            content=TextContent(
+                type="text",
+                text=f"Probably the graphql endpoint is not running"
+            ),
+            structured_content={
+                "sourceid": "b40aa51b-4013-426b-989d-4748bc8b55a6",
+                "errors": f"Probably the graphql endpoint is not running"
+            }
+        )
     print(f"response_data: {response_data}")
     data_list = next(iter(response_data.values()), None)
     print(f"data_list: {data_list}")
-    assert data_list is not None, f"Cannot found expected list of entities in graphql response {response_data_set}"
+    # assert data_list is not None, f"Cannot found expected list of entities in graphql response {response_data_set}"
+    if data_list is None:
+        return ToolResult(
+            content=TextContent(
+                type="text",
+                text=f"Cannot found expected list of entities in graphql response {response_data_set}"
+            ),
+            structured_content={
+                "sourceid": "8fdeb496-9612-4067-a08d-f77126c81e50",
+                "errors": f"Cannot found expected list of entities in graphql response {response_data_set}"
+            }
+        )
     md_table = await display_list_of_dict_as_table.fn(
         data=data_list,
         ctx=ctx
     )
+    return ToolResult(
+        content=TextContent(
+            type="text",
+            text=md_table
+        ),
+        structured_content={
+            "sourceid": "0d5febef-6fc3-4648-a255-640332bf4df2",
+            "response": md_table,
+            "graphql": {
+                "query": query,
+                "variables": variables,
+                "result": response_data
+            }
+        }
+    )
 
-    return md_table
     
 
 @mcp.tool(
@@ -265,7 +342,7 @@ async def ask_graphql_endpoint(
 async def get_graphQL_data(
     user_message: str, 
     ctx: fastmcp.Context
-) -> str:
+) -> ToolResult:
     import json
     import graphql
 
@@ -333,8 +410,21 @@ async def get_graphQL_data(
         data=data_list,
         ctx=ctx
     )
-
-    return md_table
+    return ToolResult(
+        content=TextContent(
+            type="text",
+            text=md_table
+        ),
+        structured_content={
+            "sourceid": "9d5e6b6b-4e87-4cc6-872d-9a7083574dfe",
+            "graphql": {
+                "query": query,
+                "variables": {},
+                "result": response_data
+            }
+        }
+    )
+    
 
 
 @mcp.tool(

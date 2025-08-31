@@ -15,11 +15,243 @@ import fastmcp
 
 MCPURL = "http://localhost:8002/mcp"
 
+import traceback
+
+def exception_to_markdown(exc: Exception) -> str:
+    """Return a Markdown-formatted report for the given exception."""
+    # Získáme traceback jako list FrameSummary
+
+    # Hlavní hláška
+    md = ["## ⚠️ Exception Report", ""]
+    md.append(f"**Type:** `{type(exc).__name__}`  ")
+    md.append(f"**Message:** `{exc}`  ")
+
+    # Tabulka s trasou
+    md.append("\n### Traceback\n")
+    md.append("| File | Line | Function | Code |")
+    md.append("|------|------|----------|------|")
+
+    tb_list = traceback.extract_tb(exc.__traceback__)
+    for frame in tb_list:
+        md.append(
+            f"| `{frame.filename}` | {frame.lineno} | `{frame.name}` | `{frame.line or ''}` |"
+        )
+
+    return "\n".join(md)
+
+
+
+def GraphQLData(
+    *,
+    gqlclient: typing.Callable[[str, typing.Dict[str, typing.Any]], typing.Awaitable[dict]],
+    query: str,
+    variables: typing.Optional[typing.Dict[str, typing.Any]] = None,
+    result: typing.Optional[typing.List[typing.Dict[str, typing.Any]]] = None,
+    metadata: typing.Optional[typing.List[typing.Dict[str, typing.Any]]] = None,
+    # extract_rows: typing.Optional[typing.Callable[[typing.Dict[str, typing.Any]], typing.List[typing.Dict[str, typing.Any]]]] = None,
+    autoload: bool = True,
+):
+    """Composite NiceGUI widget to page GraphQL list results and show them in a table.
+
+    Args:
+        gqlclient: async function (query, variables) -> {"data": {...}, "errors": ...}
+        query: GraphQL query string
+        variables: initial variables; uses 'skip' and 'limit' for paging
+        result: initial rows (optional)
+        autoload: if True and no initial result, automatically loads first page
+    """
+    if variables is None:
+        variables = {}
+    if result is None:
+        result = []
+    if isinstance(result, dict):
+        result = next(iter(result.values()), None)
+    if metadata is None:
+        metadata = {}
+
+    state = {
+        "variables": {
+            **variables,
+            "skip": variables.get("skip", 0),
+            "limit": variables.get("limit", 10)
+        },
+        "errors": [],
+        "result": list(result),
+        "ids": {r.get("id") for r in result if isinstance(r, dict) and "id" in r and r["id"] is not None},
+        "loading": False,
+        "done": False
+    }
+
+    # def default_extract_rows(data: typing.Dict[str, typing.Any]) -> typing.List[typing.Dict[str, typing.Any]]:
+    #     if not data:
+    #         return []
+
+    #     for v in data.values():
+    #         if isinstance(v, list):
+    #             return [x for x in v if isinstance(x, dict)]
+    #     return []
+
+    # extractor = extract_rows or default_extract_rows
+
+    def compute_done(new_count: int) -> None:
+        # If server returned fewer rows than limit → jsme na konci.
+        limit = state["variables"].get("limit", 10)
+        state["done"] = (limit == 0) or (new_count < limit)
+
+    compute_done(new_count=len(result))
+    async def reload_all():
+        state["result"].clear()
+        state["ids"].clear()
+        state["variables"]["skip"] = 0
+        state["done"] = False
+        await load_page(skip=0)
+    
+
+    async def load_page(skip: typing.Optional[int] = None):
+        if state["loading"]:
+            return
+        state["loading"] = True
+        view.refresh()
+        try:
+            vars_now = dict(state["variables"])
+            if skip is not None:
+                vars_now["skip"] = skip
+            else:
+                vars_now["skip"] = vars_now.get("skip", 0) + vars_now.get("limit", 10)
+            print(f"load_page.variables={vars_now}")
+            response = await gqlclient(query, vars_now)
+            errors = response.get("errors")
+            if errors:
+                state["errors"] = errors if isinstance(errors, list) else [errors]
+                return
+            data = response.get("data") or {}
+            # rows = extractor(data)
+            rows = next((value for value in data.values()), [])
+            if not isinstance(rows, list):
+                state["errors"] = ["response has nonlist key, this is not expected"]
+                rows = []
+            # append unique
+            # new_added = 0
+            for row in rows:
+                rid = row.get("id")
+                if rid is not None and rid not in state["ids"]:
+                    state["result"].append(row)
+                    if rid is not None:
+                        state["ids"].add(rid)
+                    # new_added += 1
+
+            state["variables"] = {
+                **vars_now
+            }
+            compute_done(len(rows))
+        except Exception as e:
+            state["errors"] = [f"{type(e).__name__}: {e}"]
+        finally:
+            state["loading"] = False
+            view.refresh()
+
+    async def load_more():
+        print(f"load_more")
+        await load_page()
+
+    def getcolumns():
+        rows = state["result"]
+        if len(rows) == 0:
+            return []
+        return [
+            { "name": key, "label": key, "field": key, "sortable": True }
+            for key, value in rows[0].items()
+            if not isinstance(value, (dict, list))
+        ]
+    
+    @ui.refreshable
+    def view():
+        # fullscreen = ui.fullscreen()    
+        # ui.button('Toggle Fullscreen', on_click=fullscreen.toggle)
+        with ui.tabs() as tabs:
+            queryTab = ui.tab('query')
+            varTab = ui.tab('variables')
+            rawresultTab = ui.tab('rawresult')
+            resultTab = ui.tab('result')
+        with ui.tab_panels(tabs, value=resultTab).classes('w-full'):
+            with ui.tab_panel(queryTab):
+                # ui.label('queryTab tab')
+                ui.markdown((
+                    "```graphql\n"
+                    f"{query}"
+                    "\n```"
+                ))
+            with ui.tab_panel(varTab):
+                # ui.label('varTab tab')
+                ui.markdown((
+                    "```json\n"
+                    f'{json.dumps(state["variables"], indent=2)}'
+                    "\n```"
+                ))
+            with ui.tab_panel(rawresultTab):
+                ui.markdown((
+                    "## Raw Result\n\n"
+                    "```json\n"
+                    f"{json.dumps(state['result'], indent=2)}"
+                    "\n```\n"
+                    "## Metadata\n\n"
+                    "```json\n"
+                    f"{json.dumps(metadata, indent=2)}"
+                    "\n```"
+                    
+                ))
+            with ui.tab_panel(resultTab):
+                # ui.markdown((
+                #     "```json\n"
+                #     f"{json.dumps(state['result'], indent=2)}"
+                #     "\n```"
+                # ))
+                ui.table(
+                    columns=getcolumns(),
+                    rows=state["result"],
+                    row_key="id"
+                )
+        if state["errors"]:
+            ui.markdown("```text\n" + "\n".join(map(str, state["errors"])) + "\n```")
+
+        with ui.row().classes('gap-2 mt-2'):
+            
+            ui.button(
+                "Reload",
+                on_click=reload_all,
+                # ena=state["loading"],
+            )
+            ui.button(
+                "Load more",
+                on_click=load_more,
+                # disable=state["loading"] or state["done"],
+            )
+            if state["loading"]:
+                ui.spinner(size="md")
+
+            if state["done"]:
+                ui.label("No more data").classes('text-xs text-gray-500')
+
+        pass
+
+    view()
+    # optional first fetch
+    if autoload and not state["result"]:
+        ui.timer(0, load_more, once=True)
+
+    return view
+
+
 @ui.page("/")
 async def index_page():
     chatSession = ChatSession()
     mcpClient = fastmcp.Client(MCPURL)
-    
+    from main_mcp import createGQLClient
+    gqlClient = await createGQLClient(
+        username="john.newbie@world.com",
+        password="john.newbie@world.com"
+    )
+
     async with mcpClient:
         # result["tool.response"] = await client.call_tool("echo", {"text": "hello"})
         mcp_tools = await mcpClient.list_tools()
@@ -27,6 +259,7 @@ async def index_page():
         print(f"mcp tools: {mcp_tools}")
         print(f"mcp prompts: {prompts}")
         
+    
     #     resources = await client.list_resource_templates()
         
     #     # Filter resources by tag
@@ -68,47 +301,47 @@ async def index_page():
 
         # chatSession.ask
         
-        if question.strip() == "sdl":
-            response = [
-                {"type": "text", "content": f"I have responded to {question}"},
-                {"type": "md", "content": schema.as_str().replace("\\n", "\n").replace('\\"', '"') }
-            ]
-        elif question.strip() == "explain":
-            from src.Utils.explain_query import explain_graphql_query
-            from src.Utils.gql_client import createGQLClient
-            client = await createGQLClient(username="john.newbie@world.com", password="john.newbie@world.com")
-            sdl_query = """query __ApolloGetServiceDefinition__ { _service { sdl } }"""
-            result = await client(sdl_query, variables={})
-            print(result)
-            sdl = result["data"]["_service"]["sdl"]
-            schema_ast = parse(sdl)
-            # sdl = schema.as_str()
-            query = """
-query userPage($skip: Int, $limit: Int, $orderby: String, $where: UserInputWhereFilter) {
-  userPage(skip: $skip, limit: $limit, orderby: $orderby, where: $where) {
-  __typename
-id
-lastchange
-created
+#         if question.strip() == "sdl":
+#             response = [
+#                 {"type": "text", "content": f"I have responded to {question}"},
+#                 {"type": "md", "content": schema.as_str().replace("\\n", "\n").replace('\\"', '"') }
+#             ]
+#         elif question.strip() == "explain":
+#             from src.Utils.explain_query import explain_graphql_query
+#             from src.Utils.gql_client import createGQLClient
+#             client = await createGQLClient(username="john.newbie@world.com", password="john.newbie@world.com")
+#             sdl_query = """query __ApolloGetServiceDefinition__ { _service { sdl } }"""
+#             result = await client(sdl_query, variables={})
+#             print(result)
+#             sdl = result["data"]["_service"]["sdl"]
+#             schema_ast = parse(sdl)
+#             # sdl = schema.as_str()
+#             query = """
+# query userPage($skip: Int, $limit: Int, $orderby: String, $where: UserInputWhereFilter) {
+#   userPage(skip: $skip, limit: $limit, orderby: $orderby, where: $where) {
+#   __typename
+# id
+# lastchange
+# created
 
-name
-givenname
-middlename
-email
-firstname
-surname
-valid
-startdate
-enddate
-}
-}
-"""
-            result = explain_graphql_query(schema_ast, query)
-            response = [
-                {"type": "text", "content": f"I have responded to {question}"},
-                {"type": "md", "content": f"```gql\n{result}\n```"} 
-            ]
-        else:
+# name
+# givenname
+# middlename
+# email
+# firstname
+# surname
+# valid
+# startdate
+# enddate
+# }
+# }
+# """
+#             result = explain_graphql_query(schema_ast, query)
+#             response = [
+#                 {"type": "text", "content": f"I have responded to {question}"},
+#                 {"type": "md", "content": f"```gql\n{result}\n```"} 
+#             ]
+#         else:
             from mcp.types import SamplingMessage, CreateMessageRequestParams
             async def onSampling(
                 messages: typing.List[SamplingMessage], 
@@ -123,6 +356,18 @@ enddate
                 # llm_response = '["UserGQLModel"]'
                 await addAssistantMsg((
                     "Odpovídám si \n\n"
+                    "```json\n"
+                    f"{llm_response}"
+                    "\n```"
+                ))
+                log.push((
+                    "Ptám se LLM \n\n"
+                    "```json\n"
+                    f"{query}"
+                    "\n```"
+                ))
+                log.push((
+                    "LLM mi odpovídá \n\n"
                     "```json\n"
                     f"{llm_response}"
                     "\n```"
@@ -161,10 +406,14 @@ enddate
                     }
                 )
                 
-                promptLines = [msg.content.text for msg in tool_prompt.messages]
-                await addUserMsg('\n\n'.join(promptLines))
-                
-                chat_str_response = await chatSession.ask('\n\n'.join(promptLines))
+                toolChoicePromptLines = [msg.content.text for msg in tool_prompt.messages]
+                toolChoicePromptLines = '\n\n'.join(toolChoicePromptLines)
+                # await addAssistantMsg(toolChoicePromptLines)
+                log.push((
+                    "dotaz na LLM\n"
+                    f"{toolChoicePromptLines}"
+                ))
+                chat_str_response = await chatSession.ask(toolChoicePromptLines)
                 chat_str_response_json = {
                     "action": "respond",
                     "message": f"{chat_str_response}"
@@ -173,40 +422,88 @@ enddate
                 try:
                 # print(f"tool_prompt: {tool_prompt}")
                     chat_str_response_json = json.loads(chat_str_response)
-                    await addAssistantMsg((
+                    # await addAssistantMsg((
+                    #     "Odpověď od asistenta v surové podobě\n"
+                    #     '```json\n'
+                    #     f'{chat_str_response_json}'
+                    #     '\n```'
+                    # ))
+                    log.push((
+                        f'{"#"*30}'
+                        "\n\n"
+                        "Odpověď od asistenta v surové podobě\n"
                         '```json\n'
                         f'{chat_str_response_json}'
                         '\n```'
                     ))
-                    print(f"chat_str_response_json: {chat_str_response_json}")
+                    # print(f"chat_str_response_json: {chat_str_response_json}")
                     action = chat_str_response_json.get("action")
                 except Exception as e:
                     hasErrors = True
-                    response.append(
-                            {"type": "md", "content": (
-                                f"Doslo k chybe {chat_str_response}"
-                                "\n"
-                                f"Exception {e}"
-                            )}
-                        )
-                    
+                    await addAssistantMsg((
+                        "Došlo k chybě při identifikaci vhodného nástroje \n"
+                        "```json\n"
+                        f"{chat_str_response}"
+                        "\n```\n"
+                        f"{chat_str_response.encode('utf-8').hex()}"
+                        "\n"
+                        f"{type(e)} {e}"
+                        f"{exception_to_markdown(e)}"
+                    ))
+                    # response.append(
+                    #         {"type": "md", "content": (
+                    #             "Došlo k chybě při identifikaci vhodného nástroje \n"
+                    #             f"{chat_str_response}"
+                    #             "\n"
+                    #             f"Exception {e}"
+                    #         )}
+                    #     )
+                if hasErrors: 
+                    await addAssistantMsg((
+                        "Došlo k chybě nevím jak pokračovat \n"
+                    ))
+                    return
                 action = chat_str_response_json.get("action")
                 print(f"action: {action}")
+                toolFromAction = next(filter(lambda tool: tool["name"] == action, tools), None)
+                if toolFromAction is not None:
+                    action = "tool"
+                    chat_str_response_json["action"] = action
+                    chat_str_response_json["tool"] = toolFromAction["name"]
+                    
                 if action != "tool":
-                    response.append(
-                        {"type": "md", "content": f'{chat_str_response_json["message"]}'}    
-                    )
+                    await addAssistantMsg((
+                        f'{chat_str_response_json.get("message")}'
+                        "\n"
+                        "```json\n"
+                        f"{chat_str_response}"
+                        "\n```\n"
+                        f"{chat_str_response.encode('utf-8').hex()}"
+                        "\n"
+                    ))
+                    # response.append(
+                    #     {"type": "md", "content": f'{chat_str_response_json["message"]}'}    
+                    # )
                 tries = 0
                 maxTries = 3
-                while tries < maxTries and not hasErrors and action == "tool":
+                while tries < maxTries and action == "tool":
+                    tries += 1
+                    if tries > 1:
+                        await addAssistantMsg(f"Další pokus {tries} / {maxTries}")
+                        chat_str_response = await chatSession.ask('')
                     try:
-                        tool_to_call = chat_str_response_json["tool"]
+                        tool_to_call = chat_str_response_json.get("tool")
+                        if tool_to_call is None:
+                            await chatSession.append_history((
+                                "Tvoje odpověď neobsahuje název nástroje, zkus to znovu"
+                            ))
                         arguments = chat_str_response_json.get("arguments")
+                        print(f"while tool_to_call: {tool_to_call}, arguments: {arguments}")
                         await addAssistantMsg((
-                            f"vybral jsem  vhodný nástroj `{tool_to_call}`"
+                            f"Vybral jsem  vhodný nástroj **`{tool_to_call}`**"
                             "\ns parametry\n"
                             "```json\n"
-                            f"{arguments}"
+                            f"{json.dumps(arguments)}"
                             "\n```"
                         ))
                         # await addAssistantMsg(f"Volím nástroj {tool_to_call}.")
@@ -214,32 +511,81 @@ enddate
                             name=tool_to_call,
                             arguments=arguments,
                         )
+                        errors = None
+                        if tool_response.structured_content is not None:
+                            errors = tool_response.structured_content.get("errors")
+                            
+                        if errors is not None:
+                            hasErrors = True
+                            toolDefinition = next(filter(lambda tool: tool["name"] == tool_to_call, tools), None)
+                            chatSession.append_history({
+                                "role": "user", 
+                                "content": (
+                                    "volani nástroje mi hlásí chybu, zkus to opravit\n\n"
+                                    "definice nástroje, který jsi doporučil volat je\n\n"
+                                    f"{json.dumps(toolDefinition)}"
+                                    "\n\nchyba, kterou to hlásí je\n\n"
+                                    f"{e}"
+                                )
+                            })
+                            await addAssistantMsg((
+                                    "Doslo k chybe pri volani nastroje" 
+                                    f"{chat_str_response}"
+                                    "\n"
+                                    "nástroj hlásí chybu\n"
+                                    f"{errors}"
+                                ))    
+                            continue
+
                         tool_response_text = "\n".join([block.text for block in tool_response.content])
                         # vrat mi seznam skupin
-                        response.append(
-                            {"type": "md", "content": tool_response_text}    
-                        )
+                        await addAssistantMsg(tool_response_text)
+
+                        if tool_response.structured_content is not None:
+                            graphql = tool_response.structured_content.get("graphql")
+                            if graphql is not None:
+                                with message_container:
+                                    GraphQLData(
+                                        gqlclient=gqlClient, 
+                                        query=graphql.get("query"),
+                                        variables=graphql.get("variables"),
+                                        result=graphql.get("result"),
+                                        metadata=tool_response.structured_content,
+                                        autoload=False
+                                    )
+                        # response.append(
+                        #     {"type": "md", "content": tool_response_text}    
+                        # )
                         tries = maxTries
+                        break
                     except Exception as e:
                         hasErrors = True
-                        toolDefinition = next(filter(lambda tool: tool["name"] == tool_to_call, tools, None))
-                        chatSession.append_history({
+                        toolDefinition = next(filter(lambda tool: tool["name"] == tool_to_call, tools), None)
+                        await chatSession.append_history({
                             "role": "user", 
                             "content": (
                                 "volani nástroje mi hlásí chybu, zkus to opravit\n\n"
                                 "definice nástroje, který jsi doporučil volat je\n\n"
                                 f"{json.dumps(toolDefinition)}"
                                 "\n\nchyba, kterou to hlásí je\n\n"
-                                f"{e}"
+                                f"{type(e)}: {e}"
                             )
                         })
-                        response.append(
-                            {"type": "md", "content": (
-                                f"Doslo k chybe {chat_str_response}"
+                        await addAssistantMsg((
+                                f"Doslo k chybe pri volani nastroje {tries}" 
+                                "\n\n"
+                                f"{chat_str_response}"
                                 "\n"
-                                f"Exception {e}"
-                            )}
-                        )
+                                f"{type(e)} {e}"
+                                f"{exception_to_markdown(e)}"
+                            ))
+                        # response.append(
+                        #     {"type": "md", "content": (
+                        #         f"Doslo k chybe {chat_str_response}"
+                        #         "\n"
+                        #         f"Exception {e}"
+                        #     )}
+                        # )
                 
                 # response = [
                 #     # {"type": "text", "content": f"I have responded to {question}"},
