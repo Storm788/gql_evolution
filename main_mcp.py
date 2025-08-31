@@ -38,16 +38,46 @@ mcp = FastMCP("My MCP Server")
     # uri="prompt://recognizetool"
 )
 async def get_use_tools(tools: list[dict]) -> str:
-    prompt = (
-        "You can either answer directly or call exactly one tool.\n"
-        "Respond in JSON only.\n"
-        "Schema:\n"
-        '{"action":"respond","message":"..."}\n'
-        "or\n"
-        '{"action":"tool","tool":"NAME","arguments":{...}}\n\n'
-        "Available tools:\n\n"
-        f"{tools}"
+    
+    toolsstr = json.dumps(tools)
+    prompt = (f"""
+# Instructions
+              
+Choose if a tool defined by mcp server will be called or you can respond to user query.
+You can either answer directly or call exactly one tool.
+                    
+## Responses
+              
+Respond in JSON only. If you suggest to call the tool, the response must be in form
+              
+```json
+{{"action":"tool", "tool":"NAME", "arguments": {{...}} }}
+```
+
+otherwise return your answer in form
+
+```json
+{{"action":"respond", "message": "..."}}
+```
+
+## Available tools
+
+```json
+{toolsstr}
+```
+"""
+
+       
     )
+
+ # "You can either answer directly or call exactly one tool.\n"
+        # "Respond in JSON only.\n"
+        # "Schema:\n"
+        # '{"action":"respond","message":"..."}\n'
+        # "or\n"
+        # '{"action":"tool","tool":"NAME","arguments":{...}}\n\n'
+        # "Available tools:\n\n"
+        # f"{tools}"    
     return prompt
 
 @mcp.resource(
@@ -112,7 +142,7 @@ async def get_graphql_types(ctx: fastmcp.Context):
 @mcp.resource(
     description=(
         "This resource generates a GraphQL query from an ordered list of types. "
-        "The query’s root selects the first type; "
+        "The query's root selects the first type; "
         "subsequent levels progressively nest selections to reach each following type in sequence. "
         "If necessary, the generator inserts implicit intermediate types that link the specified types, "
         "even when those intermediates were not explicitly provided."
@@ -152,39 +182,90 @@ async def build_graphql_query_nested(
 async def pickup_graphql_types(user_prompt: str, ctx: fastmcp.Context):
     typelist = await get_graphql_types.fn(ctx)
     prompt = f"""
-<message role="system">
-    You can pair objects mentioned by the user with GraphQL types described in the JSON below.
-    Analyze the user prompt and return only valid JSON: an array of strings, each exactly matching a type's `name`.
-    Respond with a single JSON array—no additional text, no code fences.
+# Instructions
 
-    Rules:
-    1. Exclude any types whose names end with `"Error"`, unless explicitly requested.
-    2. Match on type name or on keywords found in the description.
-    3. Detect 1:N (one-to-many) or N:1 relationships between the matched types, and order the array so that each parent type appears immediately before its child types.
+You can pair objects mentioned by the user with GraphQL types described in the JSON below.
+Analyze the user prompt and return only valid JSON: an array of strings, each exactly matching a type's `name`.
+Respond with a single JSON array—no additional text, no code fences.
+
+Rules:
+1. Exclude any types whose names end with `"Error"`, unless explicitly requested.
+2. Match on type name or on keywords found in the description.
+3. Detect 1:N (one-to-many) or N:1 relationships between the matched types, and order the array so that each parent type appears immediately before its child types.
 
 
-    [EXAMPLE]
-    prompt:
-        "Give me a list of study programs and their students"
-    output:
-        ["ProgramGQLModel", "StudentGQLModel"]
-    [END EXAMPLE]
+## Output Example
 
-    [GRAPHQLTYPES] 
+prompt:
+    "Give me a list of study programs and their students"
+output:
+    ["ProgramGQLModel", "StudentGQLModel"]
+
+## Types to select from
+
 ```json
     {json.dumps(typelist, indent=2)}
 ```
-    [END GRAPHQLTYPES] 
-</message>
-<message role="user">{user_prompt}</message>
+   
+## User Prompt
+
+```
+{user_prompt}
+```
 """
     return prompt
+
+
+@mcp.tool(
+    description=(
+        "Asks graphql endpoint for data. "
+        "If the query is known this is appropriate tool for extraction data from graphql endpoint. "
+        "Data are returned as markdown table."
+    )
+)
+async def ask_graphql_endpoint(
+    # query: typing.Annotated[str, "graphql query"],
+    # variables: typing.Annotated[dict, "variables for the graphql query"],
+    query: str,
+    variables: dict,
+    ctx: fastmcp.Context
+) -> str:
+    gqlClient = ctx.get_state("gqlClient")
+    if gqlClient is None:
+        gqlClient = await createGQLClient(
+            username="john.newbie@world.com",
+            password="john.newbie@world.com"
+        )
+        ctx.set_state(
+            key="gqlClient",
+            value=gqlClient
+        ) 
+
+    response_data_set = await gqlClient(query=query, variables=variables)
+    response_error = response_data_set.get("errors") 
+    assert response_error is None, f"During query {query} got response {response_data_set}"
+    response_data = response_data_set.get("data")
+    assert response_data is not None, "Probably the graphql endpoint is not running"
+    print(f"response_data: {response_data}")
+    data_list = next(iter(response_data.values()), None)
+    print(f"data_list: {data_list}")
+    assert data_list is not None, f"Cannot found expected list of entities in graphql response {response_data_set}"
+    md_table = await display_list_of_dict_as_table.fn(
+        data=data_list,
+        ctx=ctx
+    )
+
+    return md_table
+    
 
 @mcp.tool(
     description="Retreieves data from graphql endpoint. If the user want to get some data or entities this is appropriate tool to run.",
     tags={"system"}
 )
-async def get_graphQL_data(user_message: str, ctx: fastmcp.Context) -> str:
+async def get_graphQL_data(
+    user_message: str, 
+    ctx: fastmcp.Context
+) -> str:
     import json
     import graphql
 
@@ -264,7 +345,7 @@ async def display_list_of_dict_as_table(data: typing.List[typing.Dict], ctx: fas
         return "*(no data)*"
 
     # Sloupce vezmeme z klíčů prvního dictu
-    headers = list(data[0].keys())
+    headers = [key for key, value in data[0].items() if not isinstance(value, (dict, list))]
 
     # Hlavička
     header_line = "| " + " | ".join(headers) + " |"

@@ -57,28 +57,29 @@ class GraphQLQueryBuilder:
                     queue.append((nxt, path + [(field, nxt)]))
         return []
 
-    def build_query_vector(self, types: List[str]) -> str:
+    def build_query_vector(self, page_operation:str=None, types: List[str]=[]) -> str:
         print(f"building query vector for types {types}")
         root = types[0]
         rootfragment = build_large_fragment(self.ast, root)
         page_operations = get_read_vector_values(self.ast)
-        page_operation = page_operations[root][0]
+        if page_operation is None:
+            page_operation = page_operations[root][0]
         # print(f"page_operation {page_operation}")
 
         field = select_ast_by_path(self.ast, ["Query", page_operation])
         
-        args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        # args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        args = [f"${arg.name.value}: {self.type_node_to_str(arg.type)}" for arg in field.arguments if field.arguments]
         args_str = ", ".join(args)
         args2 = [(f"{arg.name.value}: ${arg.name.value}") for arg in field.arguments]
         args2_str = ", ".join(args2)
         args3 = [
-                (
-                    f"# ${arg.name.value}: {arg.type.name.value}" + 
-                    ("!" if isinstance(arg.type, NonNullTypeNode) else "") + 
-                    f" # {arg.description.value}"
-                ) 
-                for arg in field.arguments
-            ]
+            (
+                f"# ${arg.name.value}: {self.type_node_to_str(arg.type)}" + 
+                f" # {arg.description.value if arg.description else ''}"
+            )
+            for arg in field.arguments
+        ]
         args3_str = "\n".join(args3)
         args3_str += "\n\n# to get more results, adjust parameters $skip and / or $limit and call the query until the result is empty vector\n"
         # print(f"args: {args}")
@@ -105,31 +106,65 @@ class GraphQLQueryBuilder:
             build_spread(root, path)
             for path in full_paths.values()
         ]
-        selections.append(rootfragment)
+        # selections.append(rootfragment)
 
         unique_selections = list(dict.fromkeys(selections))
-        selection_str = " ".join(unique_selections)
+        selection_str = "\n   ".join(unique_selections)
         query = f"query {page_operation}({args_str})\n{args3_str}\n{{\n   {page_operation}({args2_str})\n   {{\n    ...{root}MediumFragment\n ...{root}LargeFragment\n    {selection_str} \n   }} \n}}"
         # Append fragments after the main query
         fragments_str = "\n\n".join(fragments)
-        result = f"{query}\n\n{fragments_str}"
+        result = f"{query}\n\n{fragments_str}\n\n{rootfragment}"
         print(f"vector query \n{result}")
         return result
     
-    def build_query_scalar(self, types: List[str]) -> str:
+    def type_node_to_str(self, type_node):
+        if isinstance(type_node, NonNullTypeNode):
+            return self.type_node_to_str(type_node.type) + "!"
+        elif isinstance(type_node, ListTypeNode):
+            return "[" + self.type_node_to_str(type_node.type) + "]"
+        elif isinstance(type_node, NamedTypeNode):
+            return type_node.name.value
+        else:
+            raise TypeError(f"Unknown type node: {type(type_node)}")
+
+    def type_node_to_name(self, type_node):
+        if isinstance(type_node, NonNullTypeNode):
+            return self.type_node_to_str(type_node.type)
+        elif isinstance(type_node, ListTypeNode):
+            return self.type_node_to_str(type_node.type)
+        elif isinstance(type_node, NamedTypeNode):
+            return type_node.name.value
+        else:
+            raise TypeError(f"Unknown type node: {type(type_node)}")
+
+    def build_query_scalar(self, page_operation:str=None, types: List[str]=[]) -> str:
+        
+            
         print(f"building query scalar for types {types}")
         root = types[0]
         rootfragment = build_large_fragment(self.ast, root)
         page_operations = get_read_scalar_values(self.ast)
-        page_operation = page_operations[root][0]
+        if page_operation is None:
+            page_operation = page_operations[root][0] 
         # print(f"page_operation {page_operation}")
 
         field = select_ast_by_path(self.ast, ["Query", page_operation])
-        args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        if field is None:
+            raise ValueError(f"Field {page_operation} not found in Query type")
+        # args = [(f"${arg.name.value}: {arg.type.name.value}" + ("!" if isinstance(arg.type, NonNullTypeNode) else "")) for arg in field.arguments]
+        args = [f"${arg.name.value}: {self.type_node_to_str(arg.type)}" for arg in field.arguments if field.arguments]
         args_str = ", ".join(args)
         args2 = [(f"{arg.name.value}: ${arg.name.value}") for arg in field.arguments]
         args2_str = ", ".join(args2)
         # print(f"args: {args}")
+        args3 = [
+            (
+                f"# ${arg.name.value}: {self.type_node_to_str(arg.type)}" + 
+                f" # {arg.description.value if arg.description else ''}"
+            )
+            for arg in field.arguments
+        ]
+        args3_str = "\n".join(args3)
 
         # print(f"field: {field}, {field.name.value}")
         # Generate fragment definitions for each type
@@ -156,7 +191,8 @@ class GraphQLQueryBuilder:
         ]
         unique_selections = list(dict.fromkeys(selections))
         selection_str = " ".join(unique_selections)
-        query = f"query {page_operation}({args_str})\n{{\n   {page_operation}({args2_str})\n   {{\n    ...{root}MediumFragment\n    ...{root}LargeFragment\n    {selection_str} \n   }} \n}}"
+        query = f"query {page_operation}({args_str})\n{args3_str}\n{{\n   {page_operation}({args2_str})\n   {{\n    ...{root}MediumFragment\n    ...{root}LargeFragment\n    {selection_str} \n   }} \n}}"
         # Append fragments after the main query
         fragments_str = "\n\n".join(fragments)
         return f"{query}\n\n{fragments_str}"    
+

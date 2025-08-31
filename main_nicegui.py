@@ -48,7 +48,9 @@ async def index_page():
             # response_message = ui.chat_message(name='Asistent', sent=False).classes("no-tail")
             with response_message:
                 # ui.html(part["content"])
-                ui.markdown(msg)
+                with ui.element('div').classes('table-responsive'):
+                    ui.markdown(msg)
+        return response_message
 
     async def addUserMsg(msg):
         with message_container:
@@ -56,6 +58,7 @@ async def index_page():
             with response_message:
                 # ui.html(part["content"])
                 ui.markdown(msg)
+        return response_message
 
     async def send() -> None:
         question = text.value
@@ -115,7 +118,7 @@ enddate
                 
                 query = "\n".join([message.content.text for message in messages])
                 await addAssistantMsg(f"Musím se zeptat sám sebe")
-                await addAssistantMsg(f"query")
+                await addAssistantMsg(f"{query}")
                 llm_response = await chatSession.ask(query)
                 # llm_response = '["UserGQLModel"]'
                 await addAssistantMsg((
@@ -133,6 +136,9 @@ enddate
                 message: str | None
             ):
                 await addAssistantMsg(f"{message}")
+                await chatSession.append_history(
+                    {"role": "assistant", "content": message}
+                )
                 pass
 
             response = []
@@ -141,53 +147,99 @@ enddate
                 sampling_handler=onSampling,
                 progress_handler=onProgress
             ) as mcpClient:
+                # await addUserMsg(question)
+                await chatSession.append_history(
+                    {"role": "user", "content": question}
+                )
+
                 tools = [tool.model_dump() for tool in mcp_tools]
-                print(f"niceguid.page.tools {tools}")
+                # print(f"niceguid.page.tools {tools}")
                 tool_prompt = await mcpClient.get_prompt(
                     name="get_use_tools",
                     arguments={
                         "tools": tools
                     }
                 )
-                print(f"tool_prompt: {tool_prompt}")
-                await addAssistantMsg("vyberu vhodný nástroj")
-                await chatSession.append_history(
-                    {"role": "user", "content": question}
-                )
+                
                 promptLines = [msg.content.text for msg in tool_prompt.messages]
+                await addUserMsg('\n\n'.join(promptLines))
+                
                 chat_str_response = await chatSession.ask('\n\n'.join(promptLines))
+                chat_str_response_json = {
+                    "action": "respond",
+                    "message": f"{chat_str_response}"
+                }
+                hasErrors = False
                 try:
+                # print(f"tool_prompt: {tool_prompt}")
                     chat_str_response_json = json.loads(chat_str_response)
+                    await addAssistantMsg((
+                        '```json\n'
+                        f'{chat_str_response_json}'
+                        '\n```'
+                    ))
                     print(f"chat_str_response_json: {chat_str_response_json}")
-                    action = chat_str_response_json["action"]
-                    print(f"action: {action}")
-                    if action == "respond":
-                        response.append(
-                            {"type": "md", "content": f'{chat_str_response_json["message"]}'}    
+                    action = chat_str_response_json.get("action")
+                except Exception as e:
+                    hasErrors = True
+                    response.append(
+                            {"type": "md", "content": (
+                                f"Doslo k chybe {chat_str_response}"
+                                "\n"
+                                f"Exception {e}"
+                            )}
                         )
-                    else:
+                    
+                action = chat_str_response_json.get("action")
+                print(f"action: {action}")
+                if action != "tool":
+                    response.append(
+                        {"type": "md", "content": f'{chat_str_response_json["message"]}'}    
+                    )
+                tries = 0
+                maxTries = 3
+                while tries < maxTries and not hasErrors and action == "tool":
+                    try:
                         tool_to_call = chat_str_response_json["tool"]
-                        await addAssistantMsg(f"Volím nástroj {tool_to_call}.")
+                        arguments = chat_str_response_json.get("arguments")
+                        await addAssistantMsg((
+                            f"vybral jsem  vhodný nástroj `{tool_to_call}`"
+                            "\ns parametry\n"
+                            "```json\n"
+                            f"{arguments}"
+                            "\n```"
+                        ))
+                        # await addAssistantMsg(f"Volím nástroj {tool_to_call}.")
                         tool_response = await mcpClient.call_tool(
                             name=tool_to_call,
-                            arguments={
-                                "user_message": question
-                            },
-
+                            arguments=arguments,
                         )
                         tool_response_text = "\n".join([block.text for block in tool_response.content])
                         # vrat mi seznam skupin
                         response.append(
                             {"type": "md", "content": tool_response_text}    
                         )
-                except Exception as e:
-                    response.append(
-                        {"type": "md", "content": (
-                            f"Doslo k chybe {chat_str_response}"
-                            "\n"
-                            f"Exception {e}"
-                        )}
-                    )
+                        tries = maxTries
+                    except Exception as e:
+                        hasErrors = True
+                        toolDefinition = next(filter(lambda tool: tool["name"] == tool_to_call, tools, None))
+                        chatSession.append_history({
+                            "role": "user", 
+                            "content": (
+                                "volani nástroje mi hlásí chybu, zkus to opravit\n\n"
+                                "definice nástroje, který jsi doporučil volat je\n\n"
+                                f"{json.dumps(toolDefinition)}"
+                                "\n\nchyba, kterou to hlásí je\n\n"
+                                f"{e}"
+                            )
+                        })
+                        response.append(
+                            {"type": "md", "content": (
+                                f"Doslo k chybe {chat_str_response}"
+                                "\n"
+                                f"Exception {e}"
+                            )}
+                        )
                 
                 # response = [
                 #     # {"type": "text", "content": f"I have responded to {question}"},
@@ -204,7 +256,8 @@ enddate
                     ui.markdown(part["content"])
             elif part["type"] == "md":
                 with response_message:
-                    ui.markdown(part["content"])
+                    with ui.element('div').classes('table-responsive'):
+                        ui.markdown(part["content"])
         ui.run_javascript('window.scrollTo(0, document.body.scrollHeight)')
 
         # text.value = ''
@@ -233,6 +286,32 @@ enddate
     .q-message .markdown pre code {
     background: transparent;
     padding: 0;
+    }
+    </style>
+    """)    
+
+    ui.add_head_html("""
+    <style>
+    /* Bootstrap-like responsive wrapper */
+    .table-responsive {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    }
+    /* optional: aby se tabulka nerozpadala a nevylézala z bubliny */
+    .table-responsive table {
+    margin-bottom: 0;
+    border-collapse: collapse;
+    }
+    .table-responsive th, 
+    .table-responsive td {
+    /* buď nech svinování textu... */
+    white-space: nowrap;      /* ← zruš, pokud chceš zalamovat */
+    /* ...a nebo povol zalamování:
+    white-space: normal;
+    word-break: break-word;
+    */
     }
     </style>
     """)    
