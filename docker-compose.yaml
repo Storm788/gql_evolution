@@ -1,0 +1,65 @@
+x-services-volume:
+  &system-data-volume
+  type: bind
+  source: ./systemdata.rnd.json
+  target: /app/systemdata.json
+
+
+services:
+
+  chatgpt-web:
+    image: yidadaa/chatgpt-next-web
+    environment:
+      OPENAI_API_KEY: <Azure OpenAI API Key>
+      BASE_URL: http://azure_proxy:8000
+      CODE: ""
+      HIDE_USER_API_KEY: 1
+      HIDE_BALANCE_QUERY: 1
+      ENABLE_MCP: "true"
+    ports:
+      - 3000:3000
+
+  azure_proxy:
+    build:
+      context: ./azure_proxy        # podadresář s Dockerfile a zdrojáky
+      dockerfile: Dockerfile         # volitelné, default je "Dockerfile"
+    environment:
+        AZURE_COGNITIVE_ACCOUNT_NAME: ${AZURE_COGNITIVE_ACCOUNT_NAME}
+        AZURE_OPENAI_API_KEY: ${OPENAI_API_KEY}
+        AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION}
+    ports:
+      - 8798:8000
+
+  postgres_gql:
+    image: pgvector/pgvector:pg17
+    environment:
+      # promenne, ktere lze cist v kontejneru
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=example
+      - POSTGRES_DB=data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+    restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
+    volumes:
+      # - dbdata:/var/lib/postgresql/data
+      - ./pgvector:/docker-entrypoint-initdb.d    
+    ports:
+      - 5434:5432
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      # promenne, ktere lze cist v kontejneru
+      - PGADMIN_DEFAULT_EMAIL=anoyne@anywhere.com
+      - PGADMIN_DEFAULT_PASSWORD=example
+    healthcheck:
+      test: ["CMD", "wget", "-O", "-", "http://localhost:80/misc/ping"]
+      interval: 60s
+      timeout: 10s
+      retries: 5
+    ports:
+      - 31800:80

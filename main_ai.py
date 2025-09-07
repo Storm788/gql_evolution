@@ -17,6 +17,7 @@ OPENAI_API_KEY=os.getenv("OPENAI_API_KEY")
 account = os.getenv("AZURE_COGNITIVE_ACCOUNT_NAME", "")
 model_name = os.getenv("AZURE_CHAT_DEPLOYMENT_NAME", "") or "summarization-deployment"
 endpoint = f"https://{account}.openai.azure.com"
+endpoint = f"http://localhost:8798"
 
 # from langchain_openai import AzureChatOpenAI
 # from langchain.chat_models import AzureChatOpenAI #.azure_openai import AzureChatOpenAI
@@ -328,6 +329,7 @@ class MCPRouter:
             payload = {
                 "TOOLS_JSON": ctx.tools_json,
                 "USER_MESSAGE": ctx.user_message,
+                "router_last_error": ctx.meta.get("router_last_error"),
                 "LAST_TOOL_ATTEMPT": ctx.meta.get("LAST_TOOL_ATTEMPT"),
                 "ERROR_FROM_TOOL": ctx.error,     # při prvním průchodu None
                 "RETRY_COUNT": rtry,
@@ -357,7 +359,15 @@ class MCPRouter:
             try:
                 Draft202012Validator(ROUTER_OUTPUT_SCHEMA).validate(data)
             except ValidationError as e:
-                last_error = f"Router output schema validation failed: {e.message}"
+                last_error = (
+                    f"Router output schema validation failed: {e.message}",
+                    "\n\n"
+                    "schema is\n\n"
+                    f"{ROUTER_OUTPUT_SCHEMA}"
+                    "\n\nresponse was\n\n"
+                    f"{json.dumps(data, indent=2)}"
+                )
+
                 ctx.meta["router_last_error"] = last_error
                 ctx.meta["router_last_raw"] = data
                 async def _noop(_): return None

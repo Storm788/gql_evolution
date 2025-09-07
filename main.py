@@ -242,6 +242,7 @@ nicegui.ui.run_with(
 # region mcp
 from main_mcp import mcp_app, Client
 innerlifespan = mcp_app.lifespan
+
 app.mount(path="/mcp", app=mcp_app)
 
 @app.get("/testmcp")
@@ -265,4 +266,20 @@ async def test_mcp() -> dict:
     return result
 # endregion
 
+
+@app.middleware("http")
+async def add_process_log(request: Request, call_next):
+    print(f"http.middleware base_url={request.base_url}")
+    response = await call_next(request)
+    return response
+
+@mcp_app.middleware("http")
+async def add_process_log(request: Request, call_next):
+    print(f"mcp.http.middleware base_url={request.base_url}")
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        print("chyba {e}")
+        raise e
+    return response
 # v následujícím dotazu identifikuj datové entity, a podmínky, které mají splňovat. seznam datových entit (jejich odhadnuté názvy) uveď jako json list obsahující stringy - názvy seznam podmínek uveď jako json list obsahující dict např. {"name": {"_eq": "Pavel"}} pokud se jedná o podmínku v relaci, odpovídající dict je tento {"related_entity": {"attribute_name": {"_eq": "value"}}} v dict nikdy není použit klíč, který by sdružoval více názvů atributů dotaz: najdi mi všechny uživatele, kteří jsou členy katedry K209

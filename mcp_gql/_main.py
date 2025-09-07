@@ -6,10 +6,94 @@ import dataclasses
 import fastmcp
 from fastmcp import FastMCP, Client
 from fastmcp.tools.tool import ToolResult, TextContent
+from fastmcp.prompts.prompt import PromptResult, PromptMessage
 
 # MCP server instance
-mcp = FastMCP("My MCP Server")
+mcp = FastMCP("MCP Server for graphql API endpoint")
 
+
+@mcp.resource(
+    description="extract sdl of the graphql endpoint",
+    uri="resource://graphql/sdl",
+    mime_type="application/json", # Explicit MIME type
+    tags={"metadata"}, # Categorization tags
+)
+async def get_graphql_sdl(ctx: fastmcp.Context):
+    import graphql
+    gqlClient = ctx.get_state("gqlClient")
+    if gqlClient is None:
+        gqlClient = await createGQLClient(
+            username="john.newbie@world.com",
+            password="john.newbie@world.com"
+        )
+        ctx.set_state(
+            key="gqlClient",
+            value=gqlClient
+        ) 
+    sdl_query = "query __ApolloGetServiceDefinition__ { _service { sdl } }"
+    response = await gqlClient(query=sdl_query)
+    response_data = response.get("data")
+    assert response_data is not None, "Probably the graphql endpoint is not running"
+    _service = response_data.get("_service")
+    assert _service is not None, "Something went wrong, this could be error in code. _service key in graphql response is missing"
+    sdl_str = _service.get("sdl")
+    assert sdl_str is not None, "Something went wrong, this could be error in code. sdl key in graphql response is missing"
+    sdl_ast = graphql.parse(sdl_str)
+    ctx.set_state(
+        key="sdl_ast",
+        value=sdl_ast
+    )
+    print(f"get_graphql_sdl - set sdl_ast to {sdl_ast}")
+    return sdl_ast
+
+@mcp.resource(
+    description="returns a list of types at graphql endpoint paired with their description",
+    uri="resource://graphql/types",
+    mime_type="application/json", # Explicit MIME type
+    tags={"metadata"}, # Categorization tags
+)
+async def get_graphql_types(ctx: fastmcp.Context):
+    import graphql
+    sdl_ast = ctx.get_state("sdl_ast")
+    if sdl_ast is None:       
+        sdl_ast = await get_graphql_sdl.fn(ctx)
+        print(f"get_graphql_types.sdl_ast = {sdl_ast}")
+        
+    result = {}
+    for node in sdl_ast.definitions:
+        if isinstance(node, graphql.language.ast.ObjectTypeDefinitionNode):
+            name = node.name.value
+            if "Error" in name:
+                continue
+            description = node.description.value if node.description else None
+            result[name] = {"name": name, "description": description}
+
+    result = list(result.values())
+    return result
+
+@mcp.prompt(
+    description=()
+)
+async def identify_graphql_types(
+    user_message: typing.Annotated[
+        str,
+        "Natural language query from user describing the data"
+    ],
+    ctx: fastmcp.Context
+) -> PromptResult:
+    result = [
+        {
+            "role": "assistant",
+            "content": (
+                "You are graphql endpoint expert. "
+                "You are cappable to decide which graphql types are related to user question. "
+                "\n"
+                "The available types are: \n\n"
+                f"{json.dumps(graphql_types, indent=2, ensure_ascii=False)}"
+            )
+        }
+    ]
+    return result
 # Definice toolu
 # @mcp.tool(
 #     description="return the given text back"
@@ -531,65 +615,6 @@ OUTPUT:
     return prompt
 
 
-@mcp.resource(
-    description="extract sdl of the graphql endpoint",
-    uri="resource://graphql/sdl",
-    mime_type="application/json", # Explicit MIME type
-    tags={"metadata"}, # Categorization tags
-)
-async def get_graphql_sdl(ctx: fastmcp.Context):
-    import graphql
-    gqlClient = ctx.get_state("gqlClient")
-    if gqlClient is None:
-        gqlClient = await createGQLClient(
-            username="john.newbie@world.com",
-            password="john.newbie@world.com"
-        )
-        ctx.set_state(
-            key="gqlClient",
-            value=gqlClient
-        ) 
-    sdl_query = "query __ApolloGetServiceDefinition__ { _service { sdl } }"
-    response = await gqlClient(query=sdl_query)
-    response_data = response.get("data")
-    assert response_data is not None, "Probably the graphql endpoint is not running"
-    _service = response_data.get("_service")
-    assert _service is not None, "Something went wrong, this could be error in code. _service key in graphql response is missing"
-    sdl_str = _service.get("sdl")
-    assert sdl_str is not None, "Something went wrong, this could be error in code. sdl key in graphql response is missing"
-    sdl_ast = graphql.parse(sdl_str)
-    ctx.set_state(
-        key="sdl_ast",
-        value=sdl_ast
-    )
-    print(f"get_graphql_sdl - set sdl_ast to {sdl_ast}")
-    return sdl_ast
-
-@mcp.resource(
-    description="returns a list of types at graphql endpoint paired with their description",
-    uri="resource://graphql/types",
-    mime_type="application/json", # Explicit MIME type
-    tags={"metadata"}, # Categorization tags
-)
-async def get_graphql_types(ctx: fastmcp.Context):
-    import graphql
-    sdl_ast = ctx.get_state("sdl_ast")
-    if sdl_ast is None:       
-        sdl_ast = await get_graphql_sdl.fn(ctx)
-        print(f"get_graphql_types.sdl_ast = {sdl_ast}")
-        
-    result = {}
-    for node in sdl_ast.definitions:
-        if isinstance(node, graphql.language.ast.ObjectTypeDefinitionNode):
-            name = node.name.value
-            if "Error" in name:
-                continue
-            description = node.description.value if node.description else None
-            result[name] = {"name": name, "description": description}
-
-    result = list(result.values())
-    return result
-
 # @mcp.prompt(
 #     description="build system prompt for tool router "
 # )
@@ -969,9 +994,7 @@ async def get_graphQL_data(
 ) -> ToolResult:
     import json
     import graphql
-    print(f"get_graphQL_data.client_id[{ctx.client_id}]")
-    print(f"get_graphQL_data.request_id[{ctx.request_id}]")
-    print(f"get_graphQL_data.session_id[{ctx.session_id}]")
+
     # gqlClient = await createGQLClient(
     #     username="john.newbie@world.com",
     #     password="john.newbie@world.com"
@@ -1066,9 +1089,9 @@ async def get_graphQL_data(
     assert response_error is None, f"During query {query} got response {response_data_set}"
     response_data = response_data_set.get("data")
     assert response_data is not None, "Probably the graphql endpoint is not running"
-    # print(f"response_data: {response_data}")
+    print(f"response_data: {response_data}")
     data_list = next(iter(response_data.values()), None)
-    # print(f"data_list: {data_list}")
+    print(f"data_list: {data_list}")
     assert data_list is not None, f"Cannot found expected list of entities in graphql response {response_data_set}"
     md_table = await display_list_of_dict_as_table.fn(
         data=data_list,
@@ -1392,7 +1415,14 @@ async def createGQLClient(*, url: str = "http://localhost:33001/api/gql", userna
 
 # Připoj MCP router k umbrella app
 # app.include_router(mcp, prefix="/mcp")
-# mcp_app = mcp.http_app(path="/")
-mcp_app = mcp.sse_app(path="/")
-# mcp.sse_app()
+mcp_app = mcp.http_app(path="/")
+
 # v následujícím dotazu identifikuj datové entity, a podmínky, které mají splňovat. seznam datových entit (jejich odhadnuté názvy) uveď jako json list obsahující stringy - názvy seznam podmínek uveď jako json list obsahující dict např. {"name": {"_eq": "Pavel"}} pokud se jedná o podmínku v relaci, odpovídající dict je tento {"related_entity": {"attribute_name": {"_eq": "value"}}} v dict nikdy není použit klíč, který by sdružoval více názvů atributů dotaz: najdi mi všechny uživatele, kteří jsou členy katedry K209
+
+
+from .server import mcp
+from .openapi import app
+
+mcp_app = mcp.http_app(path="/")
+innerlifespan = mcp_app.lifespan
+app.mount(path="/mcp", app=mcp_app)

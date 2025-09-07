@@ -698,6 +698,10 @@ navrhni mi formular pro zadost studenta s polozkami
 - jmeno a prijmeni studenta
 - zneni zadosti
 - vyjadreni nekolika osob k zadosti
-  - kdo se vyjadril
-  - jake vyjadreni napsal
+    - kdo se vyjadril
+    - jake vyjadreni napsal
+"""
+
+"""
+vrat mi seznam uzivatelu se jmenem Petr
 """

@@ -226,6 +226,10 @@ uvicorn main:app --reload
 uvicorn main:app --env-file environment.txt --port 8001
 ```
 
+```bash
+docker compose --env-file environment.secret.txt up -d
+```
+
 The query bellow returns a link to other federation members
 
 ```gql

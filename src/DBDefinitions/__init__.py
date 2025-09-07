@@ -18,6 +18,9 @@ async def startEngine(connectionstring, makeDrop=False, makeUp=True):
         if makeDrop:
             await conn.run_sync(BaseModel.metadata.drop_all)
             print("BaseModel.metadata.drop_all finished")
+
+        # await conn.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector;")
+
         if makeUp:
             try:
                 await conn.run_sync(BaseModel.metadata.create_all)
@@ -26,6 +29,7 @@ async def startEngine(connectionstring, makeDrop=False, makeUp=True):
                 print(e)
                 print("Unable automaticaly create tables")
                 return None
+            
 
     async_sessionMaker = sessionmaker(
         asyncEngine, expire_on_commit=False, class_=AsyncSession
