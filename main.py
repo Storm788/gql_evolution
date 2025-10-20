@@ -11,5 +11,5 @@ print("All initialization is done ")
 def hello():
    return {'hello': 'world'}
 
-graphql_app = GraphQLRouter(schema)
+graphql_app = GraphQLRouter(schema, graphiql=True)
 app.include_router(graphql_app, prefix="/gql")

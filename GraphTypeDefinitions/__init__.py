@@ -1,4 +1,8 @@
 import strawberry
+from strawberry.types import Info
+from GraphTypeDefinitions.eventGQLModel import event_by_id, EventGQLModel
+from .eventGQLModel import event_by_id
+event_by_id = event_by_id
 
 @strawberry.type(description="""Type for query root""")
 class Query:
