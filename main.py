@@ -1,13 +1,13 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from strawberry.fastapi import GraphQLRouter
 
 from GraphTypeDefinitions import schema
 
 appcontext = {}
+
 @asynccontextmanager
 async def initEngine(app: FastAPI):
-
     from DBDefinitions import startEngine, ComposeConnectionString
 
     connectionstring = ComposeConnectionString()
@@ -33,19 +33,27 @@ app = FastAPI(lifespan=initEngine)
 
 print("All initialization is done ")
 
-@app.get('/hello')
+@app.get("/hello")
 def hello():
-   return {'hello': 'world'}
+    return {"hello": "world"}
 
 
-async def get_context():
+# 🟡 TADY je změna: get_context teď dostane i `request`
+async def get_context(request: Request):
     asyncSessionMaker = appcontext.get("asyncSessionMaker", None)
     if asyncSessionMaker is None:
         async with initEngine(app) as cntx:
             pass
-        
+
     from utils.Dataloaders import createLoadersContext
-    return createLoadersContext(appcontext["asyncSessionMaker"])
+
+    # vytvoří se základní kontext
+    context = createLoadersContext(appcontext["asyncSessionMaker"])
+
+    # a přidáme request do kontextu (kvůli hlavičce Authorization)
+    context["request"] = request
+    return context
+
 
 graphql_app = GraphQLRouter(
     schema,
