@@ -26,15 +26,15 @@ class EventGQLModel:
         return self.id
 
     @strawberry.field(description="""Name / label of the event""")
-    def name(self) -> strawberry.ID:
+    def name(self) -> str:
         return self.name
 
     @strawberry.field(description="""Moment when the event starts""")
-    def startdate(self) -> datetime.datetime:
+    def startdate(self) -> datetime.datetime | None:
         return self.startdate
 
     @strawberry.field(description="""Moment when the event ends""")
-    def enddate(self) -> datetime.datetime:
+    def enddate(self) -> datetime.datetime | None:
         return self.enddate
 
     @strawberry.field(description="""Timestamp / token""")
@@ -112,5 +112,17 @@ async def event_update(self, info: strawberry.types.Info, event: EventUpdateGQLM
     if row is None:
         result.msg = "fail"
     else:    
+        result.msg = "ok"
+    return result
+
+@strawberry.mutation(description="delete the event from database")
+async def event_delete(self, info: strawberry.types.Info, id: strawberry.ID) -> EventResultGQLModel:
+    loader = getLoadersFromInfo(info).events
+    row = await loader.delete(id)
+    result = EventResultGQLModel()
+    result.id = id
+    if row is None:
+        result.msg = "fail"
+    else:
         result.msg = "ok"
     return result
