@@ -26,15 +26,15 @@ class EventGQLModel:
         return self.id
 
     @strawberry.field(description="""Name / label of the event""")
-    def name(self) -> strawberry.ID:
+    def name(self) -> str:
         return self.name
 
     @strawberry.field(description="""Moment when the event starts""")
-    def startdate(self) -> datetime.datetime:
+    def startdate(self) -> datetime.datetime  | None:
         return self.startdate
 
     @strawberry.field(description="""Moment when the event ends""")
-    def enddate(self) -> datetime.datetime:
+    def enddate(self) -> datetime.datetime | None:
         return self.enddate
 
     @strawberry.field(description="""event which contains this event (aka semester of this lesson)""")

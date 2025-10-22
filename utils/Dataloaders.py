@@ -1,10 +1,10 @@
 from sqlalchemy import select
 from functools import cache
-
 from DBDefinitions.eventDBModel import EventModel
 
 def createLoader(asyncSessionMaker, DBModel):
     baseStatement = select(DBModel)
+
     class Loader:
         async def load(self, id):
             async with asyncSessionMaker() as session:
@@ -13,15 +13,14 @@ def createLoader(asyncSessionMaker, DBModel):
                 rows = rows.scalars()
                 row = next(rows, None)
                 return row
-        
+
         async def filter_by(self, **kwargs):
             async with asyncSessionMaker() as session:
                 statement = baseStatement.filter_by(**kwargs)
                 rows = await session.execute(statement)
                 rows = rows.scalars()
-                return rows
+                return list(rows)  # ✅ fix: vrací seznam výsledků
 
-            
     return Loader()
 
 def createLoaders(asyncSessionMaker):
@@ -32,7 +31,6 @@ def createLoaders(asyncSessionMaker):
             return createLoader(asyncSessionMaker, EventModel)
 
     return Loaders()
-
 
 def createLoadersContext(asyncSessionMaker):
     return {

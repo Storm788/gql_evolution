@@ -1,8 +1,27 @@
 {
   "events": [
     {
+      "id": "5194663f-11aa-4775-91ed-5f3d79269fed",
+      "name": "2024/25",
+      "startdate": "2024-09-01T00:00:00",
+      "enddate": "2025-09-01T00:00:00",
+      "_chunk": 1
+    },
+    {
       "id": "08ff1c5d-9891-41f6-a824-fc6272adc189",
-      "name": "GraphQL Launch Event"
+      "name": "2024/25 ZS",
+      "startdate": "2024-09-01T00:00:00",
+      "enddate": "2025-02-01T00:00:00",
+      "masterevent_id": "5194663f-11aa-4775-91ed-5f3d79269fed",
+      "_chunk": 2
+    },
+    {
+      "id": "0945ad17-3a36-4d33-b849-ad88144415ba",
+      "name": "2024/25 LS",
+      "startdate": "2025-02-01T00:00:00",
+      "enddate": "2025-09-01T00:00:00",
+      "masterevent_id": "5194663f-11aa-4775-91ed-5f3d79269fed",
+      "_chunk": 2
     }
   ]
 }
