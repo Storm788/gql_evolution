@@ -1,28 +1,40 @@
 import strawberry
 
-@strawberry.type(description="""Type for query root""")
-class Query:
-    @strawberry.field(
-        description="""Returns hello world"""
-        )
-    async def hello(
-        self,
-        info: strawberry.types.Info,
-    ) -> str:
-        return "hello world"
+from .eventGQLModel import (
+    EventGQLModel,
+    event_by_id,
+    event_insert,
+    event_update,
+    EventResultGQLModel,
+)
 
-    from .eventGQLModel import event_by_id
+from .userGQLModel import UserGQLModel
+from .permissions import SensitiveInfo
+
+
+@strawberry.type(description="Root Query for GraphQL API")
+class Query:
+    @strawberry.field(description="Simple hello world test")
+    def hello(self) -> str:
+        """Basic test field to verify API is running"""
+        return "world"
+
+    # Query field for fetching event by ID
     event_by_id = event_by_id
 
-@strawberry.type(description="""Type for mutation root""")
+
+@strawberry.type(description="Root Mutation for GraphQL API")
 class Mutation:
-    from .eventGQLModel import event_insert
+    # Mutation for inserting a new event
     event_insert = event_insert
 
-    from .eventGQLModel import event_update
+    # Mutation for updating an existing event
     event_update = event_update
 
+
+# Define schema with all GraphQL types included in federation
 schema = strawberry.federation.Schema(
     query=Query,
-    mutation=Mutation
+    mutation=Mutation,
+    types=[EventGQLModel, UserGQLModel],
 )

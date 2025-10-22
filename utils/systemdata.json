@@ -1,0 +1,39 @@
+{
+  "events": [
+    {
+      "id": "5194663f-11aa-4775-91ed-5f3d79269fed",
+      "name": "2024/25",
+      "startdate": "2024-09-01T00:00:00",
+      "enddate": "2025-09-01T00:00:00",
+      "_chunk": 1
+    },
+    {
+      "id": "08ff1c5d-9891-41f6-a824-fc6272adc189",
+      "name": "2024/25 ZS",
+      "startdate": "2024-09-01T00:00:00",
+      "enddate": "2025-02-01T00:00:00",
+      "masterevent_id": "5194663f-11aa-4775-91ed-5f3d79269fed",
+      "_chunk": 2
+    },
+    {
+      "id": "0945ad17-3a36-4d33-b849-ad88144415ba",
+      "name": "2024/25 LS",
+      "startdate": "2025-02-01T00:00:00",
+      "enddate": "2025-09-01T00:00:00",
+      "masterevent_id": "5194663f-11aa-4775-91ed-5f3d79269fed",
+      "_chunk": 2
+    }
+  ],
+  "events_users": [
+    {
+      "id": "89d1e684-ae0f-11ed-9bd8-0242ac110002",
+      "user_id": "89d1e724-ae0f-11ed-9bd8-0242ac110002",
+      "event_id": "08ff1c5d-9891-41f6-a824-fc6272adc189"
+    },
+    {
+      "id": "89d1f2d2-ae0f-11ed-9bd8-0242ac110002",
+      "user_id": "89d1f34a-ae0f-11ed-9bd8-0242ac110002",
+      "event_id": "0945ad17-3a36-4d33-b849-ad88144415ba"
+    }
+  ]
+}
