@@ -5,6 +5,9 @@ from src.DBDefinitions import BaseModel
 from src.DBDefinitions import (
     EventModel,
     EventInvitationModel,
+    AssetModel,
+    AssetInventoryRecordModel,
+    AssetLoanModel,
 
 )
 
@@ -20,6 +23,9 @@ class LoaderMap(LoaderMapBase[BaseModel]):
 
     EventModel: IDLoader[src.DBDefinitions.EventModel] = None
     EventInvitationModel: IDLoader[src.DBDefinitions.EventInvitationModel] = None
+    AssetModel: IDLoader[src.DBDefinitions.AssetModel] = None
+    AssetInventoryRecordModel: IDLoader[src.DBDefinitions.AssetInventoryRecordModel] = None
+    AssetLoanModel: IDLoader[src.DBDefinitions.AssetLoanModel] = None
 
 
     def __init__(self, session):
@@ -27,6 +33,9 @@ class LoaderMap(LoaderMapBase[BaseModel]):
 
         self.EventModel = self.get(EventModel)
         self.EventInvitationModel = self.get(EventInvitationModel)
+        self.AssetModel = self.get(AssetModel)
+        self.AssetInventoryRecordModel = self.get(AssetInventoryRecordModel)
+        self.AssetLoanModel = self.get(AssetLoanModel)
 
         # print(f"LoaderMap created with session: {session}")
 

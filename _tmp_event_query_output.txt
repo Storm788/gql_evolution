@@ -1,0 +1,111 @@
+﻿EventInputFilter: customInputsDict = {'name': <class 'uoishelpers.resolvers.StrFilter'>, 'name_en': <class 'uoishelpers.resolvers.StrFilter'>, 'description': <class 'uoishelpers.resolvers.StrFilter'>, 'startdate': <class 'uoishelpers.resolvers.DatetimeFilter'>, 'enddate': <class 'uoishelpers.resolvers.DatetimeFilter'>, 'id': <class 'uoishelpers.resolvers.UuidFilter'>, 'valid': <class 'uoishelpers.resolvers.BoolFilter'>, 'user_invitations': typing.Optional[typing.Annotated[ForwardRef('EventInvitationInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA76D76FD0>]]}
+scanning name: <class 'uoishelpers.resolvers.StrFilter'>
+scanning name_en: <class 'uoishelpers.resolvers.StrFilter'>
+scanning description: <class 'uoishelpers.resolvers.StrFilter'>
+scanning startdate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning enddate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning valid: <class 'uoishelpers.resolvers.BoolFilter'>
+scanning user_invitations: typing.Optional[typing.Annotated[ForwardRef('EventInvitationInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA76D76FD0>]]
+scanning name: <class 'uoishelpers.resolvers.StrFilter'>
+scanning name_en: <class 'uoishelpers.resolvers.StrFilter'>
+scanning description: <class 'uoishelpers.resolvers.StrFilter'>
+scanning startdate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning enddate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning valid: <class 'uoishelpers.resolvers.BoolFilter'>
+scanning user_invitations: typing.Optional[typing.Annotated[ForwardRef('EventInvitationInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA76D76FD0>]]
+scanning name: <class 'uoishelpers.resolvers.StrFilter'>
+scanning name_en: <class 'uoishelpers.resolvers.StrFilter'>
+scanning description: <class 'uoishelpers.resolvers.StrFilter'>
+scanning startdate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning enddate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning valid: <class 'uoishelpers.resolvers.BoolFilter'>
+scanning user_invitations: typing.Optional[typing.Annotated[ForwardRef('EventInvitationInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA76D76FD0>]]
+EventInvitationInputFilter: customInputsDict = {'id': <class 'uoishelpers.resolvers.UuidFilter'>, 'event_id': <class 'uoishelpers.resolvers.UuidFilter'>, 'user_id': <class 'uoishelpers.resolvers.UuidFilter'>, 'state_id': <class 'uoishelpers.resolvers.UuidFilter'>, 'event': typing.Optional[typing.Annotated[ForwardRef('EventInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA74418C00>]]}
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning event_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning state_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning event: typing.Optional[typing.Annotated[ForwardRef('EventInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA74418C00>]]
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning event_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning state_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning event: typing.Optional[typing.Annotated[ForwardRef('EventInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA74418C00>]]
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning event_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning state_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning event: typing.Optional[typing.Annotated[ForwardRef('EventInputFilter'), <strawberry.types.lazy_type.StrawberryLazyReference object at 0x000001CA74418C00>]]
+AssetInputFilter: customInputsDict = {'id': <class 'uoishelpers.resolvers.UuidFilter'>, 'name': <class 'uoishelpers.resolvers.StrFilter'>, 'inventory_code': <class 'uoishelpers.resolvers.StrFilter'>, 'description': <class 'uoishelpers.resolvers.StrFilter'>, 'location': <class 'uoishelpers.resolvers.StrFilter'>, 'category': <class 'uoishelpers.resolvers.StrFilter'>, 'owner_group_id': <class 'uoishelpers.resolvers.UuidFilter'>, 'custodian_user_id': <class 'uoishelpers.resolvers.UuidFilter'>}
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning name: <class 'uoishelpers.resolvers.StrFilter'>
+scanning inventory_code: <class 'uoishelpers.resolvers.StrFilter'>
+scanning description: <class 'uoishelpers.resolvers.StrFilter'>
+scanning location: <class 'uoishelpers.resolvers.StrFilter'>
+scanning category: <class 'uoishelpers.resolvers.StrFilter'>
+scanning owner_group_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning custodian_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning name: <class 'uoishelpers.resolvers.StrFilter'>
+scanning inventory_code: <class 'uoishelpers.resolvers.StrFilter'>
+scanning description: <class 'uoishelpers.resolvers.StrFilter'>
+scanning location: <class 'uoishelpers.resolvers.StrFilter'>
+scanning category: <class 'uoishelpers.resolvers.StrFilter'>
+scanning owner_group_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning custodian_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning name: <class 'uoishelpers.resolvers.StrFilter'>
+scanning inventory_code: <class 'uoishelpers.resolvers.StrFilter'>
+scanning description: <class 'uoishelpers.resolvers.StrFilter'>
+scanning location: <class 'uoishelpers.resolvers.StrFilter'>
+scanning category: <class 'uoishelpers.resolvers.StrFilter'>
+scanning owner_group_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning custodian_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+AssetInventoryRecordInputFilter: customInputsDict = {'id': <class 'uoishelpers.resolvers.UuidFilter'>, 'asset_id': <class 'uoishelpers.resolvers.UuidFilter'>, 'record_date': <class 'uoishelpers.resolvers.DatetimeFilter'>, 'status': <class 'uoishelpers.resolvers.StrFilter'>, 'checked_by_user_id': <class 'uoishelpers.resolvers.UuidFilter'>}
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning asset_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning record_date: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning status: <class 'uoishelpers.resolvers.StrFilter'>
+scanning checked_by_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning asset_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning record_date: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning status: <class 'uoishelpers.resolvers.StrFilter'>
+scanning checked_by_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning asset_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning record_date: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning status: <class 'uoishelpers.resolvers.StrFilter'>
+scanning checked_by_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+AssetLoanInputFilter: customInputsDict = {'id': <class 'uoishelpers.resolvers.UuidFilter'>, 'asset_id': <class 'uoishelpers.resolvers.UuidFilter'>, 'borrower_user_id': <class 'uoishelpers.resolvers.UuidFilter'>, 'startdate': <class 'uoishelpers.resolvers.DatetimeFilter'>, 'enddate': <class 'uoishelpers.resolvers.DatetimeFilter'>, 'returned_date': <class 'uoishelpers.resolvers.DatetimeFilter'>}
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning asset_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning borrower_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning startdate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning enddate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning returned_date: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning asset_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning borrower_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning startdate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning enddate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning returned_date: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning asset_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning borrower_user_id: <class 'uoishelpers.resolvers.UuidFilter'>
+scanning startdate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning enddate: <class 'uoishelpers.resolvers.DatetimeFilter'>
+scanning returned_date: <class 'uoishelpers.resolvers.DatetimeFilter'>
+UserRoleProviderExtension.field_arg_names {'rbacobject_id', 'db_row', 'event', 'user_roles'}
+UserRoleProviderExtension.field_arg_names {'rbacobject_id', 'db_row', 'event', 'user_roles'}
+UserRoleProviderExtension.field_arg_names {'event'}
+UserRoleProviderExtension.field_arg_names {'event'}
+UserRoleProviderExtension.field_arg_names {'rbacobject_id', 'db_row', 'invitation', 'user_roles'}
+state_id None
+Executing query($id: UUID!){ result: eventById(id: $id){ id name masterEvent { id } subEvents { id } users { id } } }
+error with ug endpoint
+errors -> None
+data -> {'result': None}
