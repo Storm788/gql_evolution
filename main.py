@@ -96,6 +96,30 @@ async def RunOnceAndReturnSessionMaker():
 # endregion
 
 # region FastAPI setup
+DEMO_DEFAULT_USER_ID = os.getenv(
+    "DEMO_DEFAULT_USER_ID",
+    "ccb397ad-0de7-46e7-bff0-42452f11dd5e",
+)
+
+
+def _pick_demo_user_id(request: Request) -> str | None:
+    """Resolve the user identifier to be injected into context in demo mode."""
+    header_key = "x-demo-user-id"
+    candidate = request.headers.get(header_key)
+    if candidate:
+        return candidate.strip()
+
+    cookie = request.cookies.get("demo-user-id")
+    if cookie:
+        return cookie.strip()
+
+    explicit = os.getenv("DEMO_USER_ID")
+    if explicit:
+        return explicit.strip()
+
+    return DEMO_DEFAULT_USER_ID
+
+
 async def get_context(request: Request):
     asyncSessionMaker = await RunOnceAndReturnSessionMaker()
         
@@ -104,6 +128,13 @@ async def get_context(request: Request):
 
     result = {**context}
     result["request"] = request
+
+    demo_user_id = _pick_demo_user_id(request) if os.getenv("DEMO", "True").lower() == "true" else None
+    if demo_user_id:
+        demo_user = {"id": demo_user_id}
+        result["user"] = demo_user
+        result.setdefault("__original_user", demo_user.copy())
+
     return result
 
 innerlifespan = None
@@ -186,12 +217,12 @@ logging.info("All initialization is done")
 
 # region ENV setup tests
 def envAssertDefined(name, default=None):
-    result = os.getenv(name, None)
+    result = os.getenv(name, default)
     assert result is not None, f"{name} environment variable must be explicitly defined"
     return result
 
-DEMO = envAssertDefined("DEMO", None)
-GQLUG_ENDPOINT_URL = envAssertDefined("GQLUG_ENDPOINT_URL", None)
+DEMO = envAssertDefined("DEMO", "True")
+GQLUG_ENDPOINT_URL = envAssertDefined("GQLUG_ENDPOINT_URL", "http://localhost:8000/gql")
 
 assert (DEMO in ["True", "true", "False", "false"]), "DEMO environment variable can have only `True` or `False` values"
 DEMO = DEMO in ["True", "true"]
