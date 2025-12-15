@@ -19,17 +19,15 @@ async def test_asset_crud_cycle():
     insert_query = """
         mutation {
             result: assetInsert(asset: {name: "Laptop", inventoryCode: "INV-001", location: "Room 101"}) {
-                id
-                msg
-                entity: asset { id name inventoryCode location lastchange }
+                __typename
+                ... on AssetGQLModel { id name inventoryCode location lastchange }
+                ... on InsertError { msg }
             }
         }
     """
     resp = await schema.execute(insert_query, context_value=context_value)
     assert resp.errors is None
-    data = resp.data["result"]
-    assert data is not None
-    asset = data["entity"]
+    asset = resp.data["result"]
     assert asset is not None
     asset_id = asset["id"]
     assert asset_id is not None
@@ -45,44 +43,47 @@ async def test_asset_crud_cycle():
     assert asset2["name"] == "Laptop"
 
     # update
-    lastchange = data["entity"].get("lastchange")
+    lastchange = asset.get("lastchange")
     update_query = """
         mutation($id: UUID!, $lc: DateTime!) {
             result: assetUpdate(asset: {id: $id, lastchange: $lc, location: "Room 102"}) {
-                id
-                entity: asset { id location }
+                __typename
+                ... on AssetGQLModel { id location }
+                ... on UpdateError { msg }
             }
         }
     """
     resp = await schema.execute(update_query, variable_values={"id": asset_id, "lc": lastchange}, context_value=context_value)
     assert resp.errors is None
-    entity = resp.data["result"]["entity"]
+    entity = resp.data["result"]
     assert entity["location"] == "Room 102"
 
     # create inventory record
     inv_insert = """
         mutation($assetId: UUID!) {
             result: assetInventoryRecordInsert(record: {assetId: $assetId, status: "ok"}) {
-                id
-                entity: assetInventoryRecord { id status asset { id } }
+                __typename
+                ... on AssetInventoryRecordGQLModel { id status asset { id } }
+                ... on InsertError { msg }
             }
         }
     """
     resp = await schema.execute(inv_insert, variable_values={"assetId": asset_id}, context_value=context_value)
     assert resp.errors is None
-    inv = resp.data["result"]["entity"]
+    inv = resp.data["result"]
     assert inv["status"] == "ok"
 
     # create loan
     loan_insert = """
         mutation($assetId: UUID!) {
             result: assetLoanInsert(loan: {assetId: $assetId}) {
-                id
-                entity: assetLoan { id asset { id } }
+                __typename
+                ... on AssetLoanGQLModel { id asset { id } }
+                ... on InsertError { msg }
             }
         }
     """
     resp = await schema.execute(loan_insert, variable_values={"assetId": asset_id}, context_value=context_value)
     assert resp.errors is None
-    loan = resp.data["result"]["entity"]
+    loan = resp.data["result"]
     assert loan is not None

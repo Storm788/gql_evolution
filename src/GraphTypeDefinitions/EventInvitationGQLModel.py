@@ -94,7 +94,6 @@ class EventInvitationGQLModel(BaseGQLModel):
         ],
         resolver=ScalarResolver[EventGQLModel](fkey_field_name="event_id")
     )
-
     user: typing.Optional[UserGQLModel] = strawberry.field(
         description="""User assigned to the invitation""",
         permission_classes=[

@@ -12,7 +12,7 @@ services:
     build:
       context: ./proxy  # Path to the directory containing the Dockerfile
     environment:
-      - TARGET_SERVER=http://host.docker.internal:8000
+      - TARGET_SERVER=http://host.docker.internal:8001
 
   frontend:
     image: hrbolek/frontend
@@ -59,7 +59,7 @@ services:
       - |
         SERVICES=
         [
-          {"name": "evolution", "url": "http://proxy:8000/gql"},
+          {"name": "evolution", "url": "http://proxy:8001/gql"},
           {"name": "ug", "url": "http://gql_ug:8000/gql"}
         ]       
     healthcheck:

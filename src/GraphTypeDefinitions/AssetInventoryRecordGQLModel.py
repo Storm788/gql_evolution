@@ -112,63 +112,24 @@ class AssetInventoryRecordDeleteGQLModel:
     lastchange: datetime.datetime = strawberry.field(description="lastchange")
 
 
-@strawberry.type(description="Outcome of inventory record mutations")
-class AssetInventoryRecordMutationResult:
-    id: typing.Optional[IDType] = strawberry.field(
-        description="Identifier of the affected inventory record", default=None
-    )
-    msg: typing.Optional[str] = strawberry.field(
-        description="Diagnostic information when operation fails", default=None
-    )
-    asset_inventory_record: typing.Optional[AssetInventoryRecordGQLModel] = strawberry.field(
-        description="Inventory record entity returned on success", default=None
-    )
-
-
-@strawberry.type(description="Outcome of inventory record delete operation")
-class AssetInventoryRecordDeleteResult:
-    id: typing.Optional[IDType] = strawberry.field(
-        description="Identifier of the deleted record", default=None
-    )
-    msg: typing.Optional[str] = strawberry.field(
-        description="Diagnostic message", default=None
-    )
-    error: typing.Optional[DeleteError[AssetInventoryRecordGQLModel]] = strawberry.field(
-        description="Detailed error payload", default=None
-    )
-
-
 @strawberry.type(description="Inventory record mutations")
 class AssetInventoryRecordMutation:
     @strawberry.field(description="Insert inventory record", permission_classes=[OnlyForAuthentized])
-    async def asset_inventory_record_insert(self, info: strawberry.types.Info, record: AssetInventoryRecordInsertGQLModel) -> AssetInventoryRecordMutationResult:
+    async def asset_inventory_record_insert(self, info: strawberry.types.Info, record: AssetInventoryRecordInsertGQLModel) -> typing.Union[AssetInventoryRecordGQLModel, InsertError[AssetInventoryRecordGQLModel]]:
         ensure_user_in_context(info)
         result = await Insert[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)
-        if getattr(result, "failed", False):
-            return AssetInventoryRecordMutationResult(
-                id=None,
-                msg=getattr(result, "msg", None),
-                asset_inventory_record=None
-            )
-        return AssetInventoryRecordMutationResult(id=result.id, msg=None, asset_inventory_record=result)
+        return result
 
     @strawberry.field(description="Update inventory record", permission_classes=[OnlyForAuthentized])
-    async def asset_inventory_record_update(self, info: strawberry.types.Info, record: AssetInventoryRecordUpdateGQLModel) -> AssetInventoryRecordMutationResult:
+    async def asset_inventory_record_update(self, info: strawberry.types.Info, record: AssetInventoryRecordUpdateGQLModel) -> typing.Union[AssetInventoryRecordGQLModel, UpdateError[AssetInventoryRecordGQLModel]]:
         ensure_user_in_context(info)
         result = await Update[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)
-        if getattr(result, "failed", False):
-            entity = getattr(result, "_entity", None)
-            return AssetInventoryRecordMutationResult(
-                id=None,
-                msg=getattr(result, "msg", None),
-                asset_inventory_record=entity
-            )
-        return AssetInventoryRecordMutationResult(id=result.id, msg=None, asset_inventory_record=result)
+        return result
 
     @strawberry.field(description="Delete inventory record", permission_classes=[OnlyForAuthentized])
-    async def asset_inventory_record_delete(self, info: strawberry.types.Info, record: AssetInventoryRecordDeleteGQLModel) -> AssetInventoryRecordDeleteResult:
+    async def asset_inventory_record_delete(self, info: strawberry.types.Info, record: AssetInventoryRecordDeleteGQLModel) -> typing.Union[AssetInventoryRecordGQLModel, DeleteError[AssetInventoryRecordGQLModel]]:
         ensure_user_in_context(info)
         result = await Delete[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)
         if result is None:
-            return AssetInventoryRecordDeleteResult(id=record.id, msg=None, error=None)
-        return AssetInventoryRecordDeleteResult(id=None, msg=result.msg, error=result)
+            return AssetInventoryRecordGQLModel(id=record.id)
+        return result

@@ -4,7 +4,7 @@ import asyncio
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from strawberry.fastapi import GraphQLRouter
 
@@ -12,6 +12,7 @@ import logging
 import logging.handlers
 
 from src.GraphTypeDefinitions import schema
+from src.GraphTypeDefinitions.permissions import ALLOWED_USER_ID
 from src.DBDefinitions import startEngine, ComposeConnectionString
 from src.DBFeeder import initDB
 
@@ -98,7 +99,7 @@ async def RunOnceAndReturnSessionMaker():
 # region FastAPI setup
 DEMO_DEFAULT_USER_ID = os.getenv(
     "DEMO_DEFAULT_USER_ID",
-    "ccb397ad-0de7-46e7-bff0-42452f11dd5e",
+    ALLOWED_USER_ID,
 )
 
 
@@ -129,11 +130,22 @@ async def get_context(request: Request):
     result = {**context}
     result["request"] = request
 
+    # Try to extract user from Authorization header (Bearer <id>)
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split(" ", 1)
+        token = parts[1] if len(parts) == 2 else parts[0]
+        if token:
+            result["user"] = {"id": token.strip()}
+
     demo_user_id = _pick_demo_user_id(request) if os.getenv("DEMO", "True").lower() == "true" else None
     if demo_user_id:
         demo_user = {"id": demo_user_id}
         result["user"] = demo_user
         result.setdefault("__original_user", demo_user.copy())
+
+    if os.getenv("DEMO", "False").lower() != "true" and not result.get("user"):
+        raise HTTPException(status_code=401, detail="Authorization required")
 
     return result
 
@@ -161,7 +173,7 @@ app = FastAPI(lifespan=lifespan)
 
 graphql_app = GraphQLRouter(
     schema,
-    context_getter=get_context
+    context_getter=get_context,
 )
 
 from uoishelpers.schema import SessionCommitExtensionFactory
@@ -221,7 +233,7 @@ def envAssertDefined(name, default=None):
     assert result is not None, f"{name} environment variable must be explicitly defined"
     return result
 
-DEMO = envAssertDefined("DEMO", "True")
+DEMO = envAssertDefined("DEMO", "False")
 GQLUG_ENDPOINT_URL = envAssertDefined("GQLUG_ENDPOINT_URL", "http://localhost:8000/gql")
 
 assert (DEMO in ["True", "true", "False", "false"]), "DEMO environment variable can have only `True` or `False` values"

@@ -72,20 +72,5 @@ def test_client_auth_notok():
     }
     headers = {}
     logging.info("test_client_auth_notok.response")
-    try:
-        response = client.post("/gql", headers=headers, json=json)
-    except:
-        pass
-    
-    logging.info("test_client_auth_notok.response")
-    assert response.status_code == 200
-    response = response.json()
-    logging.info(response)
-    assert response.get("error", None) is None
-    data = response.get("data", None)
-    assert data is not None
-    result = data.get("result", None)
-    assert result is not None
-    sensitiveMsg = result.get("sensitiveMsg", None)
-    assert sensitiveMsg is None
-    #assert False
+    response = client.post("/gql", headers=headers, json=json)
+    assert response.status_code == 401

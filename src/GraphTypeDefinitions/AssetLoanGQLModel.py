@@ -18,6 +18,7 @@ from uoishelpers.resolvers import (
 
 from .BaseGQLModel import BaseGQLModel, IDType, Relation
 from .context_utils import ensure_user_in_context
+from src.GraphTypeDefinitions.permissions import ALLOWED_USER_ID
 
 AssetGQLModel = typing.Annotated["AssetGQLModel", strawberry.lazy(".AssetGQLModel")]
 UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".UserGQLModel")]
@@ -70,12 +71,36 @@ class AssetLoanGQLModel(BaseGQLModel):
 
 @strawberry.type(description="Asset loan queries")
 class AssetLoanQuery:
-    asset_loan_by_id: typing.Optional[AssetLoanGQLModel] = strawberry.field(
-        description="Get loan by id", permission_classes=[OnlyForAuthentized], resolver=AssetLoanGQLModel.load_with_loader
+    @strawberry.field(
+        description="Get loan by id", permission_classes=[OnlyForAuthentized]
     )
-    asset_loan_page: typing.List[AssetLoanGQLModel] = strawberry.field(
-        description="Page of loans", permission_classes=[OnlyForAuthentized], resolver=PageResolver[AssetLoanGQLModel](whereType=AssetLoanInputFilter)
+    async def asset_loan_by_id(self, info: strawberry.types.Info, id: IDType) -> typing.Optional["AssetLoanGQLModel"]:
+        loader = getLoadersFromInfo(info).AssetLoanModel
+        row = await loader.load(id)
+        if row is None:
+            return None
+        user = ensure_user_in_context(info)
+        if user is None:
+            return None
+        uid = str(user.get("id"))
+        if uid == str(ALLOWED_USER_ID) or str(row.borrower_user_id) == uid:
+            return AssetLoanGQLModel.from_dataclass(row)
+        return None
+
+    @strawberry.field(
+        description="Page of loans", permission_classes=[OnlyForAuthentized]
     )
+    async def asset_loan_page(self, info: strawberry.types.Info, where: typing.Optional[AssetLoanInputFilter] = None) -> typing.List["AssetLoanGQLModel"]:
+        user = ensure_user_in_context(info)
+        if user is None:
+            return []
+        uid = str(user.get("id"))
+        if uid != str(ALLOWED_USER_ID):
+            loader = getLoadersFromInfo(info).AssetLoanModel
+            rows = await loader.filter_by(borrower_user_id=IDType(uid))
+            return [AssetLoanGQLModel.from_dataclass(row) for row in rows]
+        resolver = PageResolver[AssetLoanGQLModel](whereType=AssetLoanInputFilter)
+        return await resolver(root=None, info=info, where=where)
 
 
 from uoishelpers.resolvers import InputModelMixin
@@ -117,63 +142,24 @@ class AssetLoanDeleteGQLModel:
     lastchange: datetime.datetime = strawberry.field(description="lastchange")
 
 
-@strawberry.type(description="Outcome of loan mutations")
-class AssetLoanMutationResult:
-    id: typing.Optional[IDType] = strawberry.field(
-        description="Identifier of the affected loan", default=None
-    )
-    msg: typing.Optional[str] = strawberry.field(
-        description="Diagnostic information when operation fails", default=None
-    )
-    asset_loan: typing.Optional[AssetLoanGQLModel] = strawberry.field(
-        description="Loan entity returned on success", default=None
-    )
-
-
-@strawberry.type(description="Outcome of loan delete operation")
-class AssetLoanDeleteResult:
-    id: typing.Optional[IDType] = strawberry.field(
-        description="Identifier of the deleted loan", default=None
-    )
-    msg: typing.Optional[str] = strawberry.field(
-        description="Diagnostic message", default=None
-    )
-    error: typing.Optional[DeleteError[AssetLoanGQLModel]] = strawberry.field(
-        description="Detailed error payload", default=None
-    )
-
-
 @strawberry.type(description="Asset loan mutations")
 class AssetLoanMutation:
     @strawberry.field(description="Insert loan", permission_classes=[OnlyForAuthentized])
-    async def asset_loan_insert(self, info: strawberry.types.Info, loan: AssetLoanInsertGQLModel) -> AssetLoanMutationResult:
+    async def asset_loan_insert(self, info: strawberry.types.Info, loan: AssetLoanInsertGQLModel) -> typing.Union[AssetLoanGQLModel, InsertError[AssetLoanGQLModel]]:
         ensure_user_in_context(info)
         result = await Insert[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
-        if getattr(result, "failed", False):
-            return AssetLoanMutationResult(
-                id=None,
-                msg=getattr(result, "msg", None),
-                asset_loan=None
-            )
-        return AssetLoanMutationResult(id=result.id, msg=None, asset_loan=result)
+        return result
 
     @strawberry.field(description="Update loan", permission_classes=[OnlyForAuthentized])
-    async def asset_loan_update(self, info: strawberry.types.Info, loan: AssetLoanUpdateGQLModel) -> AssetLoanMutationResult:
+    async def asset_loan_update(self, info: strawberry.types.Info, loan: AssetLoanUpdateGQLModel) -> typing.Union[AssetLoanGQLModel, UpdateError[AssetLoanGQLModel]]:
         ensure_user_in_context(info)
         result = await Update[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
-        if getattr(result, "failed", False):
-            entity = getattr(result, "_entity", None)
-            return AssetLoanMutationResult(
-                id=None,
-                msg=getattr(result, "msg", None),
-                asset_loan=entity
-            )
-        return AssetLoanMutationResult(id=result.id, msg=None, asset_loan=result)
+        return result
 
     @strawberry.field(description="Delete loan", permission_classes=[OnlyForAuthentized])
-    async def asset_loan_delete(self, info: strawberry.types.Info, loan: AssetLoanDeleteGQLModel) -> AssetLoanDeleteResult:
+    async def asset_loan_delete(self, info: strawberry.types.Info, loan: AssetLoanDeleteGQLModel) -> typing.Union[AssetLoanGQLModel, DeleteError[AssetLoanGQLModel]]:
         ensure_user_in_context(info)
         result = await Delete[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
         if result is None:
-            return AssetLoanDeleteResult(id=loan.id, msg=None, error=None)
-        return AssetLoanDeleteResult(id=None, msg=result.msg, error=result)
+            return AssetLoanGQLModel(id=loan.id)
+        return result

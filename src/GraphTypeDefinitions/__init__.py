@@ -46,4 +46,3 @@ schema.extensions.append(PrometheusExtension(prefix="GQL_Evolution"))
 
 from uoishelpers.gqlpermissions.RolePermissionSchemaExtension import RolePermissionSchemaExtension
 schema.extensions.append(RolePermissionSchemaExtension)
-

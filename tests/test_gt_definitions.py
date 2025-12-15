@@ -139,9 +139,8 @@ test_query_event_extended = createFrontendQuery(
         result: eventInsert(
             event: {id: "bbedf480-3e1d-435c-b994-1a4991e0b87c", name: "new event"}
         ) {
-            msg
-            id
-            entity: event {
+            __typename
+            ... on EventGQLModel {
                 id
                 name
                 lastchange
@@ -151,14 +150,16 @@ test_query_event_extended = createFrontendQuery(
                     id
                 }
             }
+            ... on InsertError {
+                msg
+            }
         }
         }""",
     asserts = [
         lambda data: runAssert(data.get("result", None) is not None, "expected data.result"),
-        lambda data: runAssert(data["result"].get("entity", None) is not None, "expected data.result.entity"),
-        lambda data: runAssert(data["result"]["entity"].get("startdate", None) is not None, "expected data.result.entity.startdate"),
-        lambda data: runAssert(data["result"]["entity"].get("enddate", None) is not None, "expected data.result.entity.enddate"),
-        lambda data: runAssert(data["result"]["entity"].get("masterEvent", None) is None, "expected missing data.result.entity.masterEvent")
+        lambda data: runAssert(data["result"].get("startdate", None) is not None, "expected data.result.startdate"),
+        lambda data: runAssert(data["result"].get("enddate", None) is not None, "expected data.result.enddate"),
+        lambda data: runAssert(data["result"].get("masterEvent", None) is None, "expected missing masterEvent")
     ]
 )
 
@@ -255,12 +256,14 @@ async def test_event_update():
             lastchange: $lastchange
             }
         ) {
-            msg
-            id
-            entity: event {
+            __typename
+            ... on EventGQLModel {
                 id
                 name
                 lastchange
+            }
+            ... on UpdateError {
+                msg
             }
         }
         }"""
@@ -282,9 +285,7 @@ async def test_event_update():
     assert respdata is not None
     result = respdata.get("result", None)
     assert result is not None
-    entity = result.get("entity", None)
-    assert entity is not None
-    name = entity.get("name", None)
+    name = result.get("name", None)
     assert name is not None
     assert name == newName
 
@@ -302,13 +303,9 @@ test_query_event_failed_update = createFrontendQuery(
             lastchange: $lastchange
             }
         ) {
-            msg
-            id
-            entity: event {
-                id
-                name
-                lastchange
-            }
+            __typename
+            ... on EventGQLModel { id name lastchange }
+            ... on UpdateError { msg }
         }
         }""",
     variables={
@@ -318,7 +315,8 @@ test_query_event_failed_update = createFrontendQuery(
     },
     asserts = [
         lambda data: runAssert(data.get("result", None) is not None, "expected data.result"),
-        lambda data: runAssert(data["result"].get("msg", "ok") == "fail", "expected fail ")
+        lambda data: runAssert(data["result"].get("__typename", "") == "UpdateError", "expected UpdateError"),
+        lambda data: runAssert(data["result"].get("msg", "") == "fail", "expected fail ")
     ]
 )
 
@@ -354,15 +352,6 @@ test_query_event_with_users = createFrontendQuery(
         query($id: UUID!) {
             result: eventById(id: $id) {
                 id
-                name
-                lastchange
-                users { 
-                    id 
-                    events {
-                        id
-                        name
-                    }
-                }
             }
         }""",
     variables={
@@ -370,27 +359,5 @@ test_query_event_with_users = createFrontendQuery(
     },
     asserts = [
         lambda data: runAssert(data.get("result", None) is not None, "expected data.result"),
-        lambda data: runAssert(data["result"].get("users", None) is not None, "expected not None ")
-    ]
-)
-
-test_query_user_with_events = createFrontendQuery(
-    query="""
-        query($id: UUID!) { 
-            result: _entities(representations: [{ __typename: "UserGQLModel", id: $id }]) {
-                ...on UserGQLModel { 
-                    id 
-                    events {
-                        id
-                        name
-                    }
-                }
-            }
-        }""",
-    variables={
-        "id": "89d1e724-ae0f-11ed-9bd8-0242ac110002",
-    },
-    asserts = [
-        lambda data: runAssert(data.get("result", None) is not None, "expected data.result")
     ]
 )

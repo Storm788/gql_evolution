@@ -39,7 +39,6 @@ from .TimeUnit import TimeUnit
 
 EventInvitationGQLModel = typing.Annotated["EventInvitationGQLModel", strawberry.lazy(".EventInvitationGQLModel")]
 EventInvitationInputFilter = typing.Annotated["EventInvitationInputFilter", strawberry.lazy(".EventInvitationGQLModel")]
-UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".UserGQLModel")]
 
 
 async def _load_event_gql(
@@ -270,32 +269,12 @@ MaterializovanĂˇ cesta reprezentujĂ­cĂ­ umĂ­stÄ›nĂ­ skupiny v hiera
         ]
 
     @strawberry.field(
-        name="users",
-        description="""Users related to the event through invitations (legacy compatibility).""",
-        permission_classes=[OnlyForAuthentized]
-    )
-    async def users_alias(
-        self, info: strawberry.types.Info
-    ) -> typing.List[UserGQLModel]:
-        loader = getLoadersFromInfo(info).EventInvitationModel
-        invitations_iter = await loader.filter_by(event_id=self.id)
-        users = []
-        seen_ids = set()
-        for invitation in list(invitations_iter):
-            user_id = getattr(invitation, "user_id", None)
-            if user_id is None or user_id in seen_ids:
-                continue
-            seen_ids.add(user_id)
-            users.append(UserGQLModel(id=user_id))
-        return users
-
-    @strawberry.field(
         name="sensitiveMsg",
         description="""Legacy placeholder for compatibility with older clients.""",
         permission_classes=[OnlyForAuthentized]
     )
     async def sensitive_msg_alias(self) -> typing.Optional[str]:
-        return "Access restricted"
+        return "sensitive information"
 
 
 
@@ -496,6 +475,7 @@ class EventEnsureFacilityReservationsModel():
     description="""Input type for updating a Event"""
 )
 class EventUpdateGQLModel:
+    getLoader = staticmethod(lambda info=None: getLoadersFromInfo(info).EventModel if info else None)
     id: IDType = strawberry.field(
         description="""Event id""",
     )
@@ -532,6 +512,7 @@ class EventUpdateGQLModel:
     description="""Input type for deleting a Event"""
 )
 class EventDeleteGQLModel:
+    getLoader = staticmethod(lambda info=None: getLoadersFromInfo(info).EventModel if info else None)
     id: IDType = strawberry.field(
         description="""Event id""",
     )
@@ -628,13 +609,14 @@ class EventMutation:
         self,
         info: strawberry.Info,
         event: EventInsertGQLModel,
-    ) -> EventMutationResult:
-        stub = EventMutation._build_event_stub(event_input=event)
-        return EventMutationResult(
-            id=getattr(event, "id", None),
-            msg=None,
-            event=stub,
-        )
+    ) -> typing.Union[EventGQLModel, InsertError[EventGQLModel]]:
+        # ensure defaults for dates to keep client expectations stable
+        start = getattr(event, "start_date", None) or datetime.datetime.utcnow()
+        end = getattr(event, "end_date", None) or (start + datetime.timedelta(hours=1))
+        event.start_date = start
+        event.end_date = end
+        result = await Insert[EventGQLModel].DoItSafeWay(info=info, entity=event)
+        return result
 
     @strawberry.field(
         name="eventCreatePlan",
@@ -648,13 +630,13 @@ class EventMutation:
         self,
         info: strawberry.Info,
         event: EventPlanInsertGQLModel,
-    ) -> EventMutationResult:
-        stub = EventMutation._build_event_stub(event_input=event)
-        return EventMutationResult(
-            id=getattr(event, "id", None),
-            msg=None,
-            event=stub,
-        )
+    ) -> typing.Union[EventGQLModel, InsertError[EventGQLModel]]:
+        start = getattr(event, "start_date", None) or datetime.datetime.utcnow()
+        end = getattr(event, "end_date", None) or (start + datetime.timedelta(hours=1))
+        event.start_date = start
+        event.end_date = end
+        result = await Insert[EventGQLModel].DoItSafeWay(info=info, entity=event)
+        return result
 
     @strawberry.field(
         name="eventUpdate",
@@ -668,32 +650,9 @@ class EventMutation:
         self,
         info: strawberry.Info,
         event: EventUpdateGQLModel
-    ) -> EventMutationResult:
-        loader = getLoadersFromInfo(info).EventModel
-        base_row = None
-        if event.id is not None:
-            base_row = await loader.load(event.id)
-
-        expected_lastchange = getattr(base_row, "lastchange", None) if base_row else None
-
-        if (
-            base_row is None
-            or event.lastchange is None
-            or (expected_lastchange and event.lastchange != expected_lastchange)
-        ):
-            return EventMutationResult(
-                id=getattr(event, "id", None),
-                msg="fail",
-                event=None,
-            )
-
-        stub = EventMutation._build_event_stub(event_input=event, base_row=base_row)
-        stub.lastchange = datetime.datetime.utcnow()
-        return EventMutationResult(
-            id=getattr(event, "id", None),
-            msg=None,
-            event=stub,
-        )
+    ) -> typing.Union[EventGQLModel, UpdateError[EventGQLModel]]:
+        result = await Update[EventGQLModel].DoItSafeWay(info=info, entity=event)
+        return result
 
     @strawberry.field(
         name="eventDelete",
@@ -707,8 +666,11 @@ class EventMutation:
         self,
         info: strawberry.Info,
         event: EventDeleteGQLModel
-    ) -> EventDeleteResult:
-        return EventDeleteResult(id=event.id, msg=None, event=None)
+    ) -> typing.Union[EventGQLModel, DeleteError[EventGQLModel]]:
+        result = await Delete[EventGQLModel].DoItSafeWay(info=info, entity=event)
+        if result is None:
+            return EventGQLModel(id=event.id)
+        return result
 
     @strawberry.mutation(
         description="Accepts multiple invitations and if that invitations do not exist they are created",

@@ -222,32 +222,6 @@ class AssetDeleteGQLModel:
     lastchange: datetime.datetime = strawberry.field(description="Concurrency token")
 
 
-@strawberry.type(description="Outcome of an asset mutation operation")
-class AssetMutationResult:
-    id: typing.Optional[IDType] = strawberry.field(
-        description="Primary identifier of the affected asset", default=None
-    )
-    msg: typing.Optional[str] = strawberry.field(
-        description="Diagnostic message provided when operation fails", default=None
-    )
-    asset: typing.Optional[AssetGQLModel] = strawberry.field(
-        description="Asset entity affected by the operation", default=None
-    )
-
-
-@strawberry.type(description="Outcome of asset delete operation")
-class AssetDeleteResult:
-    id: typing.Optional[IDType] = strawberry.field(
-        description="Identifier of the deleted asset", default=None
-    )
-    msg: typing.Optional[str] = strawberry.field(
-        description="Diagnostic message when deletion fails", default=None
-    )
-    error: typing.Optional[DeleteError[AssetGQLModel]] = strawberry.field(
-        description="Detailed error payload", default=None
-    )
-
-
 @strawberry.type(description="Asset mutations")
 class AssetMutation:
     @strawberry.field(
@@ -256,12 +230,10 @@ class AssetMutation:
     )
     async def asset_insert(
         self, info: strawberry.types.Info, asset: AssetInsertGQLModel
-    ) -> AssetMutationResult:
+    ) -> typing.Union[AssetGQLModel, AssetInsertErrorType]:
         ensure_user_in_context(info)
         result = await Insert[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
-        if getattr(result, "failed", False):
-            return AssetMutationResult(id=None, msg=getattr(result, "msg", None), asset=None)
-        return AssetMutationResult(id=result.id, msg=None, asset=result)
+        return result
 
     @strawberry.field(
         description="Update an existing asset record.",
@@ -269,17 +241,10 @@ class AssetMutation:
     )
     async def asset_update(
         self, info: strawberry.types.Info, asset: AssetUpdateGQLModel
-    ) -> AssetMutationResult:
+    ) -> typing.Union[AssetGQLModel, AssetUpdateErrorType]:
         ensure_user_in_context(info)
         result = await Update[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
-        if getattr(result, "failed", False):
-            entity = getattr(result, "_entity", None)
-            return AssetMutationResult(
-                id=None,
-                msg=getattr(result, "msg", None),
-                asset=entity,
-            )
-        return AssetMutationResult(id=result.id, msg=None, asset=result)
+        return result
 
     @strawberry.field(
         description="Delete an asset record.",
@@ -287,9 +252,9 @@ class AssetMutation:
     )
     async def asset_delete(
         self, info: strawberry.types.Info, asset: AssetDeleteGQLModel
-    ) -> AssetDeleteResult:
+    ) -> typing.Union[AssetGQLModel, AssetDeleteErrorType]:
         ensure_user_in_context(info)
         result = await Delete[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
         if result is None:
-            return AssetDeleteResult(id=asset.id, msg=None, error=None)
-        return AssetDeleteResult(id=None, msg=result.msg, error=result)
+            return AssetGQLModel(id=asset.id)
+        return result
