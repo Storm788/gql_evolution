@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from .BaseModel import BaseModel
 from .EventDBModel import EventModel
 from .EventInvitationModel import EventInvitationModel
-from .AssetDBModel import AssetModel, AssetInventoryRecordModel, AssetLoanModel
+from .AssetModel import AssetModel
+from .AssetInventoryRecordModel import AssetInventoryRecordModel
+from .AssetLoanModel import AssetLoanModel
 
 async def startEngine(connectionstring, makeDrop=False, makeUp=True):
     """Provede nezbytne ukony a vrati asynchronni SessionMaker"""
