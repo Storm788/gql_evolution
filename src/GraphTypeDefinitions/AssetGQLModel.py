@@ -20,7 +20,7 @@ from uoishelpers.resolvers import InputModelMixin
 
 from .BaseGQLModel import BaseGQLModel, IDType, Relation
 from .context_utils import ensure_user_in_context
-from .permissions import is_admin_user, OnlyJohnNewbie
+from .permissions import is_admin_user
 from src.error_codes import format_error_message
 from uuid import UUID as ErrorCodeUUID
 
@@ -281,7 +281,7 @@ class AssetDeleteGQLModel:
 class AssetMutation:
     @strawberry.field(
         description="Insert a new asset record.",
-        permission_classes=[OnlyJohnNewbie],
+        permission_classes=[OnlyForAuthentized],
     )
     async def asset_insert(
         self, info: strawberry.types.Info, asset: AssetInsertGQLModel
@@ -316,7 +316,7 @@ class AssetMutation:
 
     @strawberry.field(
         description="Update an existing asset record.",
-        permission_classes=[OnlyJohnNewbie],
+        permission_classes=[OnlyForAuthentized],
     )
     async def asset_update(
         self, info: strawberry.types.Info, asset: AssetUpdateGQLModel
@@ -350,7 +350,7 @@ class AssetMutation:
 
     @strawberry.field(
         description="Delete an asset record.",
-        permission_classes=[OnlyJohnNewbie],
+        permission_classes=[OnlyForAuthentized],
     )
     async def asset_delete(
         self, info: strawberry.types.Info, asset: AssetDeleteGQLModel

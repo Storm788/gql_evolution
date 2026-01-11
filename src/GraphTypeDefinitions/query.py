@@ -1,3 +1,4 @@
+import typing
 import strawberry
 
 from .EventGQLModel import EventQuery
@@ -22,3 +23,16 @@ class Query(EventQuery, EventInvitationQuery, AssetQuery, AssetInventoryRecordQu
     async def whoami(self, info: strawberry.types.Info) -> str | None:
         user = ensure_user_in_context(info)
         return None if user is None else user.get("id")
+
+    @strawberry.field(description="Returns current authenticated user full info")
+    async def who_am_i(self, info: strawberry.types.Info) -> typing.Optional[strawberry.scalars.JSON]:
+        """Returns JSON with current user id, email, name, surname or null if not authenticated"""
+        user = ensure_user_in_context(info)
+        if user is None:
+            return None
+        return {
+            "id": str(user.get("id", "")),
+            "email": user.get("email", ""),
+            "name": user.get("name", ""),
+            "surname": user.get("surname", "")
+        }

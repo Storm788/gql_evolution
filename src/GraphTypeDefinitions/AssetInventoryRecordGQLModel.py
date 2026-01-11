@@ -199,19 +199,73 @@ class AssetInventoryRecordDeleteGQLModel:
 class AssetInventoryRecordMutation:
     @strawberry.field(description="Insert inventory record", permission_classes=[OnlyForAuthentized])
     async def asset_inventory_record_insert(self, info: strawberry.types.Info, record: AssetInventoryRecordInsertGQLModel) -> typing.Union[AssetInventoryRecordGQLModel, InsertError[AssetInventoryRecordGQLModel]]:
-        ensure_user_in_context(info)
+        user = ensure_user_in_context(info)
+        if user is None:
+            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
+            return InsertError[AssetInventoryRecordGQLModel](
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=record
+            )
+        
+        if not is_admin_user(user):
+            error_code = ErrorCodeUUID("5b9c3d4e-6f7a-4c8d-0e1f-2a3b4c5d6e7f")
+            return InsertError[AssetInventoryRecordGQLModel](
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=record
+            )
+        
         result = await Insert[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)
         return result
 
     @strawberry.field(description="Update inventory record", permission_classes=[OnlyForAuthentized])
     async def asset_inventory_record_update(self, info: strawberry.types.Info, record: AssetInventoryRecordUpdateGQLModel) -> typing.Union[AssetInventoryRecordGQLModel, UpdateError[AssetInventoryRecordGQLModel]]:
-        ensure_user_in_context(info)
+        user = ensure_user_in_context(info)
+        if user is None:
+            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
+            return UpdateError[AssetInventoryRecordGQLModel](
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=record
+            )
+        
+        if not is_admin_user(user):
+            error_code = ErrorCodeUUID("5b9c3d4e-6f7a-4c8d-0e1f-2a3b4c5d6e80")
+            return UpdateError[AssetInventoryRecordGQLModel](
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=record
+            )
+        
         result = await Update[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)
         return result
 
     @strawberry.field(description="Delete inventory record", permission_classes=[OnlyForAuthentized])
     async def asset_inventory_record_delete(self, info: strawberry.types.Info, record: AssetInventoryRecordDeleteGQLModel) -> typing.Union[AssetInventoryRecordGQLModel, DeleteError[AssetInventoryRecordGQLModel]]:
-        ensure_user_in_context(info)
+        user = ensure_user_in_context(info)
+        if user is None:
+            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
+            return DeleteError[AssetInventoryRecordGQLModel](
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=record
+            )
+        
+        if not is_admin_user(user):
+            error_code = ErrorCodeUUID("5b9c3d4e-6f7a-4c8d-0e1f-2a3b4c5d6e81")
+            return DeleteError[AssetInventoryRecordGQLModel](
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=record
+            )
+        
         result = await Delete[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)
         if result is None:
             return AssetInventoryRecordGQLModel(id=record.id)
