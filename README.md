@@ -8,113 +8,148 @@ Zahrnout provedené kontroly evidovaných věcí.
 
 ---
 
-## 31. 10. 2025 | Release 1.1
-Regenerace `systemdata.json` a `systemdata.backup.json`, dočasný formát výstupu.  
-Kontrola exportu – generátor občas duplikoval pozvánky a vytvářel sirotky bez vazby.  
-Po opravě a testu export proběhl bez chyb.
+## Říjen 2025 – Základ projektu
 
----
-
-## 29. 10. 2025 | Stabilní build 1.0
-Refaktor `src/DBFeeder.py`, sladění `main.py` s docker orchestrace.  
-Hodinové porovnávání JSONů – ručně dohledané rozdíly v timezone offsetech, které házely chyby při importu.
-
----
-
-## 27. 10. 2025 | Správa majetku
+### 27. 10. 2025 | Push 1: Správa majetku
 Kompletní CRUD systém pro správu assetů.  
-Nové modely, dotazy, testy.  
-Problém: napojení inventárních záznamů na skupinové vlastnictví a konzistence při autorizaci.
+Nové modely, dotazy a testy.  
+Řešený problém: napojení inventárních záznamů na skupinové vlastnictví a konzistence při autorizaci.
 
 ---
-## 11. 01. 2026 | Autorizace a lokalizace
 
-### Push 1: Odebrání ProfilingExtension, přidání graphiql.html
-- Odstraněn `ProfilingExtension` z `src/GraphTypeDefinitions/__init__.py` (vyvolával `'ProfilingExtension.counter'` chyby).
+### 29. 10. 2025 | Push 2: Stabilní build 1.0
+Refaktor `src/DBFeeder.py`, sladění `main.py` s Docker orchestrací.  
+Hodinové porovnávání JSON výstupů – ručně dohledané rozdíly v timezone offsetech, které způsobovaly chyby při importu.
+
+---
+
+### 31. 10. 2025 | Push 3: Release 1.1
+Regenerace `systemdata.json` a `systemdata.backup.json`, dočasný formát výstupu.  
+Kontrola exportu – generátor občas duplikoval pozvánky a vytvářel sirotčí záznamy bez vazby.  
+Po opravě a testech export proběhl bez chyb.
+
+---
+
+## Leden 2026 – Autorizace, lokalizace a federace
+
+### 11. 01. 2026 | Push 4: Removed ProfilingExtension, added GraphiQL UI
+- Odstraněn `ProfilingExtension` z `src/GraphTypeDefinitions/__init__.py` (vyvolával chyby `'ProfilingExtension.counter'`).
 - Vytvořen `public/graphiql.html` – interaktivní GraphQL explorer.
-- Vypnuty debug printy a vychytány chyby z `ProfilingExtension`.
-- **Commit:** Removed ProfilingExtension, added GraphiQL UI.
+- Vypnuty debug výpisy a odstraněny chyby související s `ProfilingExtension`.
 
-### Push 2: Centralizovaný error code dictionary
-- Vytvořen `src/error_codes.py` se UUID-based error kódy (PERMISSION_DENIED, NOT_FOUND, VALIDATION_ERROR, atd.).
-- Přidány do všech mutation typů (Asset, AssetLoan, AssetInventoryRecord).
-- Funkce `format_error_message()` pro konzistentní chybové zprávy.
-- **Commit:** Add centralized error code dictionary with UUID keys.
+---
 
-### Push 3: Vylepšení AI popisů a rozšíření About
-- Rozšířeny `description` polia u `AssetGQLModel`, `AssetLoanGQLModel`, `AssetInventoryRecordGQLModel`.
-- Dokumentace typu a případů užití v každém modelu.
-- **Commit:** Enhance AI-friendly descriptions for all GraphQL types.
+### 11. 01. 2026 | Push 5: Add centralized error code dictionary
+- Vytvořen `src/error_codes.py` s UUID-based error kódy (`PERMISSION_DENIED`, `NOT_FOUND`, `VALIDATION_ERROR`, atd.).
+- Implementace do všech mutation typů (`Asset`, `AssetLoan`, `AssetInventoryRecord`).
+- Přidána funkce `format_error_message()` pro konzistentní chybové zprávy.
 
-### Push 4: Přidání /whoami endpoint a GraphiQL user bar
-- Přidán GET `/whoami` endpoint v `main.py` – vrací aktuálního uživatele nebo `{ user: null, label: "No User" }`.
-- Aktualizován `public/graphiql.html` s horní lištou zobrazující přihlášeného uživatele.
-- Zapnutý editor hlaviček v GraphiQL pro snadné testování `x-demo-user-id`.
-- **Commit:** Add /whoami endpoint and GraphiQL user indicator bar.
+---
 
-### Push 5: Ochrana asset mutací – OnlyJohnNewbie permission
-- Přidán import `OnlyJohnNewbie` do `src/GraphTypeDefinitions/AssetGQLModel.py`.
-- Změněny `permission_classes=[OnlyForAuthentized]` na `permission_classes=[OnlyJohnNewbie]` pro `asset_insert`, `asset_update`, `asset_delete`.
-- Garantuje, že pouze admin (Estera) může vytvářet, upravovat a mazat majetek.
-- **Commit:** Enforce admin-only asset mutations with OnlyJohnNewbie.
+### 11. 01. 2026 | Push 6: Enhance AI-friendly descriptions
+- Rozšířena pole `description` u `AssetGQLModel`, `AssetLoanGQLModel`, `AssetInventoryRecordGQLModel`.
+- Doplněna dokumentace typů a případů užití v každém modelu.
 
-### Push 6: Oprava error union konstruktorů
-- Opraveny vnitřní kontroly v `asset_insert`, `asset_update`, `asset_delete` v `AssetGQLModel.py`.
-- Změněny vrácené error objekty z `entity=None` na `_entity=None` (správný název pole).
-- Přidány `_input=asset` a `code=ErrorCodeUUID(...)` pro úplnost.
-- Stejná oprava v `AssetLoanGQLModel.py` pro `asset_loan_insert`, `asset_loan_update`, `asset_loan_delete`.
-- **Commit:** Fix error union constructors – use _entity, include _input and code.
+---
 
-### Push 7: Lokalizace error kódů do češtiny
-- Přeloženy všechny kategorie a popisy chyb v `src/error_codes.py`:
+### 11. 01. 2026 | Push 7: Add /whoami endpoint and GraphiQL user bar
+- Přidán GET `/whoami` endpoint v `main.py`.
+- Aktualizován `public/graphiql.html`:
+  - horní lišta s aktuálním uživatelem
+  - editor HTTP hlaviček pro testování `x-demo-user-id`
+
+---
+
+### 11. 01. 2026 | Push 8: Admin-only mutations (assets & inventory)
+- Přidány admin-only kontroly do:
+  - `asset_insert`, `asset_update`, `asset_delete`
+  - `asset_inventory_record_insert`, `asset_inventory_record_update`, `asset_inventory_record_delete`
+- Zajišťuje, že pouze admin (Estera) může upravovat majetek a inventarizační záznamy.
+
+---
+
+### 11. 01. 2026 | Push 9: Fix error union constructors
+- Opraven návrat error objektů:
+  - `entity=None` → `_entity=None`
+  - doplněno `_input` a `code=ErrorCodeUUID(...)`
+- Zajištěn jednotný formát error union návratových typů.
+
+---
+
+### 11. 01. 2026 | Push 10: Localize error codes and UI to Czech
+- Lokalizace `src/error_codes.py`:
   - `PERMISSION_DENIED` → `OPRÁVNĚNÍ_ZAMÍTNUTO`
   - `NOT_FOUND` → `NENALEZENO`
   - `VALIDATION_ERROR` → `VALIDAČNÍ_CHYBA`
-  - `AUTHENTICATION_REQUIRED` → `VYŽADOVÁNA_AUTENTIZACE`
-  - atd.
-- Lokalizován fallback: `UNKNOWN_ERROR` → `NEZNÁMÁ_CHYBA`.
-- **Commit:** Localize error codes and messages to Czech.
+  - fallback `UNKNOWN_ERROR` → `NEZNÁMÁ_CHYBA`
+- Lokalizace GraphiQL UI a permission hlášek do češtiny.
 
-### Push 8: Lokalizace GraphiQL UI a permission zprávy
-- Změněny UI popisky v `public/graphiql.html`:
-  - `User: Loading…` → `Uživatel: Načítám…`
-  - `No User` → `Bez uživatele`
-  - Komentáře v default dotazu do češtiny.
-- Lokalizován text permisiony v `src/GraphTypeDefinitions/permissions.py`:
-  - `OnlyJohnNewbie.message` = `"Nemáte oprávnění: pouze administrátor smí provést tuto akci"`.
-- **Commit:** Localize GraphiQL UI and permission messages to Czech.
+---
+
+### 11. 01. 2026 | Push 11: whoAmI query & inventory mutations
+- Přidáno GraphQL query pole `who_am_i()` (id, email, name, surname).
+- Implementovány CRUD mutace pro `AssetInventoryRecord`.
+- Všechny mutace vrací union chyby s UUID kódem a českou zprávou.
+
+---
+
+### 11. 01. 2026 | Push 12: Apollo Federation
+- Architektura Apollo Federation:
+  - Apollo Gateway (port 33001)
+  - Asset subgraph (port 8001)
+- Federované entity:
+  - `Asset`, `AssetLoan`, `AssetInventoryRecord`, `User`, `Group`
+- Výsledek: jednotný GraphQL endpoint nad více subgraphy.
 
 ---
 
 ## Shrnutí stavu
 
 ✅ **RBAC a autorizace**
-- Admin (Estera) vidí vše, běžní uživatelé vidí pouze svá data.
-- Mutations assetů a půjček jsou admin-only s česky lokalizovaným chybovým hlášením.
-- Dvoustupňová ochrana: schema-level `OnlyJohnNewbie` + vnitřní `is_admin_user()` check.
-
-✅ **Chyby a hlášení**
-- Centralizovaný UUID-based error code dictionary.
-- Česky lokalizované chybové zprávy s kategoriemi.
-- Union vrátí error objekt s `msg`, `code`, `_entity`, `_input`.
-
-✅ **UX a dokumentace**
-- GraphiQL s user indicator barem a header editorem.
-- /whoami endpoint pro zjištění přihlášeného uživatele.
-- AI-friendly popis všech typů.
-
-✅ **Databáze**
-- DEMO=True (drop/recreate na startup), DEMODATA=False (žádná demo data).
-- Dvě PostgreSQL instance (assets, credentials).
-
-📋 **Zbývá (assignment requirements)**
-- Code coverage report (pytest --cov)
-- Docker Hub publish
-- AssetInventoryRecord mutations (dosud jen queries)
-- GraphQL whoAmI query field (dosud jen /whoami endpoint)
+- Admin (Estera) vidí všechna data.
+- Běžní uživatelé vidí pouze svá vlastní.
+- Mutace assetů, půjček a inventarizačních záznamů jsou admin-only.
+- Dvoustupňová ochrana: `OnlyForAuthentized` + `is_admin_user()`.
 
 ---
 
+✅ **Apollo Federation**
+- Gateway agreguje více subgraphů (Assets, Events, Credentials).
+- Jednotné schéma a jeden GraphQL endpoint.
 
+---
 
+✅ **GraphQL API**
+- Typy: `Asset`, `AssetLoan`, `AssetInventoryRecord` (CRUD).
+- Query: `whoami`, `who_am_i`.
+- REST endpointy: `/whoami`, `/who_am_i_endpoint`.
 
+---
+
+✅ **Chyby a hlášení**
+- Centralizovaný UUID-based error dictionary.
+- Česky lokalizované zprávy.
+- Error union: `msg`, `code`, `_entity`, `_input`.
+
+---
+
+✅ **UX a dokumentace**
+- GraphiQL na `/graphiql` (user bar + header editor).
+- Voyager schema visualizer na `/voyager`.
+- AI-friendly popisy všech typů.
+
+---
+
+✅ **Databáze**
+- `DEMO=True`, `DEMODATA=False`.
+- PostgreSQL:
+  - assets (5432)
+  - credentials (5433)
+- SQLAlchemy + asyncpg.
+
+---
+
+📋 **Zbývá (optional / nice-to-have)**
+- Code coverage report (`pytest --cov`)
+- Docker Hub publish
+- Advanced vector filters (`VectorResolver`)
