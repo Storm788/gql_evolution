@@ -1,5 +1,6 @@
 import copy
 import typing
+import uuid
 
 import strawberry
 
@@ -28,4 +29,21 @@ def ensure_user_in_context(info: strawberry.types.Info) -> typing.Optional[dict]
     return user if user else None
 
 
-__all__ = ["ensure_user_in_context"]
+def get_user_id(info: strawberry.types.Info) -> typing.Optional[uuid.UUID]:
+    """
+    Bezpečně získá user_id z kontextu.
+    """
+    user = ensure_user_in_context(info)
+    if user is None:
+        return None
+        
+    user_id_str = user.get("id")
+    if user_id_str:
+        try:
+            return uuid.UUID(user_id_str)
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+__all__ = ["ensure_user_in_context", "get_user_id"]

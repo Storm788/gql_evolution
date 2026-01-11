@@ -17,6 +17,7 @@ starlette
 strawberry-graphql
 aiodataloader
 pyjwt[crypto]
+python-dotenv
 
 pyinstrument
 prometheus_client

@@ -1,5 +1,4 @@
 from Dataloaders import LoaderMap
-from uoishelpers.schema.ProfilingExtension import Counter as ProfilingCounter
 import copy
 import typing
 
@@ -31,7 +30,6 @@ def createLoadersContext(session_or_factory):
     session = session_or_factory() if callable(session_or_factory) else session_or_factory
     context = _ContextDict()
     context["loaders"] = LoaderMap(session)
-    context["ProfilingExtension.counter"] = ProfilingCounter()
     return context
 
 

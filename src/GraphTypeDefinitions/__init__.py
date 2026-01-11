@@ -35,13 +35,12 @@ schema = strawberry.federation.Schema(
     scalar_overrides={datetime.timedelta: timedelta._scalar_definition},
 
     extensions=[],
-    schema_directives=[Relation]
+    schema_directives=[]
     
 )
 
-from uoishelpers.schema import WhoAmIExtension, ProfilingExtension, PrometheusExtension
+from uoishelpers.schema import WhoAmIExtension, PrometheusExtension
 schema.extensions.append(WhoAmIExtension)
-schema.extensions.append(ProfilingExtension)
 schema.extensions.append(PrometheusExtension(prefix="GQL_Evolution"))
 
 from uoishelpers.gqlpermissions.RolePermissionSchemaExtension import RolePermissionSchemaExtension

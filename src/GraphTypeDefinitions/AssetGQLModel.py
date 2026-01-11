@@ -20,6 +20,9 @@ from uoishelpers.resolvers import InputModelMixin
 
 from .BaseGQLModel import BaseGQLModel, IDType, Relation
 from .context_utils import ensure_user_in_context
+from .permissions import is_admin_user, OnlyJohnNewbie
+from src.error_codes import format_error_message
+from uuid import UUID as ErrorCodeUUID
 
 
 AssetInventoryRecordGQLModel = typing.Annotated[
@@ -44,27 +47,26 @@ AssetUpdateErrorType = UpdateError["AssetGQLModel"]  # type: ignore[index]
 AssetDeleteErrorType = DeleteError["AssetGQLModel"]  # type: ignore[index]
 
 
-@createInputs2
+# @createInputs2  # Commented out to avoid Apollo Gateway syntax errors with multiline descriptions
+@strawberry.input
 class AssetInputFilter:
-    """Filter operators for searching assets by fields.
-Examples:
-{"name": {"_ilike": "%notebook%"}}
-{"inventory_code": {"_eq": "INV-001"}}
-{"_and": [{"category": {"_eq": "IT"}}, {"location": {"_ilike": "%Lab%"}}]}
-"""
 
-    id: IDType
-    name: str
-    inventory_code: str
-    description: str
-    location: str
-    category: str
-    owner_group_id: IDType
-    custodian_user_id: IDType
+    id: typing.Optional[IDType] = None
+    name: typing.Optional[str] = None
+    inventory_code: typing.Optional[str] = None
+    description: typing.Optional[str] = None
+    location: typing.Optional[str] = None
+    category: typing.Optional[str] = None
+    owner_group_id: typing.Optional[IDType] = None
+    custodian_user_id: typing.Optional[IDType] = None
 
 
 @strawberry.federation.type(
-    description="Asset record representing a tangible item in the registry (e.g., notebook, monitor, tool).",
+    description="""Asset entity representing tangible physical items tracked in the organization's inventory system.
+    Each asset has unique identification, ownership information, location tracking, and categorization.
+    Assets can be assigned to custodians, loaned out to users, and regularly inventoried.
+    Examples include: laptops, monitors, tools, furniture, vehicles, equipment.
+    Supports full lifecycle management from acquisition to disposal.""",
     keys=["id"],
 )
 class AssetGQLModel(BaseGQLModel):
@@ -141,20 +143,73 @@ class AssetGQLModel(BaseGQLModel):
 
 @strawberry.interface(description="Asset queries")
 class AssetQuery:
-    asset_by_id: typing.Optional[AssetGQLModel] = strawberry.field(
+    @strawberry.field(
         description="Get an asset by its id.",
         permission_classes=[OnlyForAuthentized],
-        resolver=AssetGQLModel.load_with_loader,
     )
+    async def asset_by_id(self, info: strawberry.types.Info, id: IDType) -> typing.Optional[AssetGQLModel]:
+        """Admin vidí všechno; běžný uživatel jen assety, kde je custodian"""
+        loader = getLoadersFromInfo(info).AssetModel
+        row = await loader.load(id)
+        if row is None:
+            return None
+        
+        user = ensure_user_in_context(info)
+        if user is None:
+            return None
+        
+        # Admin vidí všechno
+        if is_admin_user(user):
+            return AssetGQLModel.from_dataclass(row)
+        
+        # Běžný uživatel vidí jen assety, kde je custodian
+        if str(row.custodian_user_id) == str(user.get("id")):
+            return AssetGQLModel.from_dataclass(row)
+        
+        return None
 
-    asset_page: typing.List[AssetGQLModel] = strawberry.field(
+    @strawberry.field(
         description="Get a page (vector) of assets filtered and ordered.",
         permission_classes=[OnlyForAuthentized],
-        resolver=PageResolver[AssetGQLModel](whereType=AssetInputFilter),
     )
+    async def asset_page(
+        self,
+        info: strawberry.types.Info,
+        skip: int = 0,
+        limit: int = 10,
+        orderby: typing.Optional[str] = None,
+        where: typing.Optional[AssetInputFilter] = None,
+    ) -> typing.List[AssetGQLModel]:
+        """Admin vidí všechno; běžný uživatel jen assety, kde je custodian"""
+        user = ensure_user_in_context(info)
+        if user is None:
+            return []
+        
+        loader = getLoadersFromInfo(info).AssetModel
+        
+        # Admin vidí všechno
+        if is_admin_user(user):
+            print(f"DEBUG asset_page: Admin - vracím všechny assety")
+            results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
+            return [AssetGQLModel.from_dataclass(row) for row in results]
+        
+        # Běžný uživatel vidí jen své assety (kde je custodian)
+        uid = str(user.get("id"))
+        print(f"DEBUG asset_page: Non-admin user {uid} - filtruje se podle custodian_user_id")
+        
+        try:
+            user_uuid = IDType(uid)
+            rows = await loader.filter_by(custodian_user_id=user_uuid)
+            rows_list = list(rows)
+            print(f"DEBUG: Nalezeno {len(rows_list)} assetů pro custodian {uid}")
+            rows_list = rows_list[skip:skip+limit] if skip or limit else rows_list
+            return [AssetGQLModel.from_dataclass(row) for row in rows_list]
+        except Exception as e:
+            print(f"ERROR filtering assets by custodian_user_id {uid}: {e}")
+            return []
 
 
-@strawberry.input(description="Asset insert mutation")
+@strawberry.input
 class AssetInsertGQLModel(InputModelMixin):
     getLoader = AssetGQLModel.getLoader
 
@@ -185,7 +240,7 @@ class AssetInsertGQLModel(InputModelMixin):
     createdby_id: strawberry.Private[IDType] = None
 
 
-@strawberry.input(description="Asset update mutation")
+@strawberry.input
 class AssetUpdateGQLModel(InputModelMixin):
     getLoader = AssetGQLModel.getLoader
 
@@ -216,7 +271,7 @@ class AssetUpdateGQLModel(InputModelMixin):
     changedby_id: strawberry.Private[IDType] = None
 
 
-@strawberry.input(description="Asset delete mutation")
+@strawberry.input
 class AssetDeleteGQLModel:
     id: IDType = strawberry.field(description="Asset id")
     lastchange: datetime.datetime = strawberry.field(description="Concurrency token")
@@ -226,34 +281,103 @@ class AssetDeleteGQLModel:
 class AssetMutation:
     @strawberry.field(
         description="Insert a new asset record.",
-        permission_classes=[OnlyForAuthentized],
+        permission_classes=[OnlyJohnNewbie],
     )
     async def asset_insert(
         self, info: strawberry.types.Info, asset: AssetInsertGQLModel
     ) -> typing.Union[AssetGQLModel, AssetInsertErrorType]:
-        ensure_user_in_context(info)
+        user = ensure_user_in_context(info)
+        if user is None:
+            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
+            return AssetInsertErrorType(
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=asset
+            )
+        
+        # Only admin can create assets
+        admin = is_admin_user(user)
+        try:
+            print(f"DEBUG asset_insert: user={user.get('id')} admin={admin}")
+        except Exception:
+            pass
+        if not admin:
+            error_code = ErrorCodeUUID("4a8b2c3d-5e6f-4b7c-9d0e-1f2a3b4c5d6e")
+            return AssetInsertErrorType(
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=asset
+            )
+        
         result = await Insert[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
         return result
 
     @strawberry.field(
         description="Update an existing asset record.",
-        permission_classes=[OnlyForAuthentized],
+        permission_classes=[OnlyJohnNewbie],
     )
     async def asset_update(
         self, info: strawberry.types.Info, asset: AssetUpdateGQLModel
     ) -> typing.Union[AssetGQLModel, AssetUpdateErrorType]:
-        ensure_user_in_context(info)
+        user = ensure_user_in_context(info)
+        if user is None:
+            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
+            return AssetUpdateErrorType(
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=asset
+            )
+        
+        admin = is_admin_user(user)
+        try:
+            print(f"DEBUG asset_update: user={user.get('id')} admin={admin}")
+        except Exception:
+            pass
+        if not admin:
+            error_code = ErrorCodeUUID("4a8b2c3d-5e6f-4b7c-9d0e-1f2a3b4c5d6f")
+            return AssetUpdateErrorType(
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=asset
+            )
+        
         result = await Update[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
         return result
 
     @strawberry.field(
         description="Delete an asset record.",
-        permission_classes=[OnlyForAuthentized],
+        permission_classes=[OnlyJohnNewbie],
     )
     async def asset_delete(
         self, info: strawberry.types.Info, asset: AssetDeleteGQLModel
     ) -> typing.Union[AssetGQLModel, AssetDeleteErrorType]:
-        ensure_user_in_context(info)
+        user = ensure_user_in_context(info)
+        if user is None:
+            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
+            return AssetDeleteErrorType(
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=asset
+            )
+        
+        admin = is_admin_user(user)
+        try:
+            print(f"DEBUG asset_delete: user={user.get('id')} admin={admin}")
+        except Exception:
+            pass
+        if not admin:
+            error_code = ErrorCodeUUID("4a8b2c3d-5e6f-4b7c-9d0e-1f2a3b4c5d70")
+            return AssetDeleteErrorType(
+                msg=format_error_message(error_code),
+                code=error_code,
+                _entity=None,
+                _input=asset
+            )
         result = await Delete[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
         if result is None:
             return AssetGQLModel(id=asset.id)

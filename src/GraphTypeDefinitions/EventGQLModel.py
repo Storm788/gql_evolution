@@ -57,21 +57,17 @@ async def event_by_id_resolver(
 ) -> typing.Optional["EventGQLModel"]:
     return await _load_event_gql(info=info, event_id=id)
 
-@createInputs2
+# @createInputs2  # Commented out to avoid Apollo Gateway syntax errors with multiline descriptions
+@strawberry.input
 class EventInputFilter:
-    name: str
-    name_en: str
-    description: str
-    startdate: datetime.datetime
-    enddate: datetime.datetime
-    id: IDType
-    valid: bool
-    user_invitations: EventInvitationInputFilter = strawberry.field(description="""Eventinvitation filter operators, 
-for field "user_invitations" the filters could be
-{"user_invitations": {"user_id": {"_eq": "ce22d5ab-f867-4cf1-8e3c-ee77eab81c24"}}}
-{"user_invitations": {"state_id": {"_eq": "91fcbf2d-8acd-49ac-ac7e-39c3e23e2ea1"}}}
-{"user_invitations": {"_and": [{"user_id": {"_eq": "ce22d5ab-f867-4cf1-8e3c-ee77eab81c24"}}, {"state_id": {"_eq": "91fcbf2d-8acd-49ac-ac7e-39c3e23e2ea1"}}]}}
-""")
+    name: typing.Optional[str] = None
+    name_en: typing.Optional[str] = None
+    description: typing.Optional[str] = None
+    startdate: typing.Optional[datetime.datetime] = None
+    enddate: typing.Optional[datetime.datetime] = None
+    id: typing.Optional[IDType] = None
+    valid: typing.Optional[bool] = None
+    user_invitations: typing.Optional[EventInvitationInputFilter] = None
 
 @strawberry.federation.type(
     description="""Entity representing a Event""",
@@ -83,8 +79,7 @@ class EventGQLModel(BaseGQLModel):
         return getLoadersFromInfo(info).EventModel
 
     path: typing.Optional[str] = strawberry.field(
-        description="""Materialized path representing the group's hierarchical location.  
-MaterializovanĂˇ cesta reprezentujĂ­cĂ­ umĂ­stÄ›nĂ­ skupiny v hierarchii.""",
+        description="""Materialized path representing the group's hierarchical location.""",
         default=None,
         permission_classes=[OnlyForAuthentized]
     )
@@ -307,9 +302,7 @@ class EventQuery:
     )
 
 from uoishelpers.resolvers import TreeInputStructureMixin, InputModelMixin
-@strawberry.input(
-    description="""Input type for creating a Event"""
-)
+@strawberry.input
 class EventInsertGQLModel(TreeInputStructureMixin):
     getLoader = EventGQLModel.getLoader
     masterevent_id: typing.Optional[IDType] = strawberry.field(
@@ -349,9 +342,7 @@ class EventInsertGQLModel(TreeInputStructureMixin):
     createdby_id: strawberry.Private[IDType] = None
 
 
-@strawberry.input(
-    description="""Input type for creating a Plan"""
-)
+@strawberry.input
 class EventPlanInsertGQLModel(TreeInputStructureMixin):
     getLoader = EventGQLModel.getLoader
     rbacobject_id: IDType = strawberry.field(
@@ -394,9 +385,7 @@ class EventPlanInsertGQLModel(TreeInputStructureMixin):
     
     createdby_id: strawberry.Private[IDType] = None
 
-@strawberry.input(
-    description="Invitation model"
-)
+@strawberry.input
 class EventInvitationInsertModel(InputModelMixin):
     @staticmethod
     def getLoader(info):
@@ -417,9 +406,7 @@ class EventInvitationInsertModel(InputModelMixin):
     )
     createdby_id: strawberry.Private[IDType]
     
-@strawberry.input(
-    description="Model for batch invitation to the event"
-)
+@strawberry.input
 class EventEnsureUserInvitationsModel:
     getLoader = EventGQLModel.getLoader
     id: IDType = strawberry.field(
@@ -433,9 +420,7 @@ class EventEnsureUserInvitationsModel:
     
     pass
 
-@strawberry.input(
-    description=""
-)
+@strawberry.input
 class EventReservationInsertModel(InputModelMixin):
     @staticmethod
     def getLoader(info):
@@ -456,9 +441,7 @@ class EventReservationInsertModel(InputModelMixin):
     )
     createdby_id: strawberry.Private[IDType]
 
-@strawberry.input(
-    description=""
-)
+@strawberry.input
 class EventEnsureFacilityReservationsModel():
     getLoader = EventGQLModel.getLoader
     id: typing.Optional[IDType] = strawberry.field(
@@ -471,9 +454,7 @@ class EventEnsureFacilityReservationsModel():
     )
     pass
 
-@strawberry.input(
-    description="""Input type for updating a Event"""
-)
+@strawberry.input
 class EventUpdateGQLModel:
     getLoader = staticmethod(lambda info=None: getLoadersFromInfo(info).EventModel if info else None)
     id: IDType = strawberry.field(
@@ -508,9 +489,7 @@ class EventUpdateGQLModel:
     # )
     changedby_id: strawberry.Private[IDType] = None
 
-@strawberry.input(
-    description="""Input type for deleting a Event"""
-)
+@strawberry.input
 class EventDeleteGQLModel:
     getLoader = staticmethod(lambda info=None: getLoadersFromInfo(info).EventModel if info else None)
     id: IDType = strawberry.field(

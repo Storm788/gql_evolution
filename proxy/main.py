@@ -9,6 +9,10 @@ async def handle_request(request):
     """
     Handles incoming requests and forwards them to the target server.
     """
+    # DEBUG: Print incoming request
+    auth_header = request.headers.get("Authorization", "NO_AUTH")
+    print(f"PROXY DEBUG: {request.method} {request.path} Authorization={auth_header[:50] if auth_header != 'NO_AUTH' else 'NO_AUTH'}")
+    
     async with ClientSession() as session:
         # Construct the URL to forward the request
         target_url = f"{TARGET_SERVER}{request.path_qs}"

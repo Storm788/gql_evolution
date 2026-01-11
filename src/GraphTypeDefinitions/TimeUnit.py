@@ -1,7 +1,7 @@
 import enum
 import strawberry
 
-@strawberry.enum(description="")
+@strawberry.enum
 class TimeUnit(enum.Enum):
     SECONDS = "seconds"
     MINUTES = "minutes"

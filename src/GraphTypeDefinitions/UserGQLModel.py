@@ -1,9 +1,10 @@
+import typing
 import strawberry
 
 from .BaseGQLModel import IDType
 
 
-@strawberry.federation.type(extend=True, keys=["id"], description="External user provided by UG service")
+@strawberry.federation.type(extend=True, keys=["id"])
 class UserGQLModel:
     id: IDType = strawberry.federation.field(external=True)
 

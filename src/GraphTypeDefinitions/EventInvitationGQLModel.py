@@ -40,19 +40,15 @@ EventGQLModel = typing.Annotated["EventGQLModel", strawberry.lazy(".EventGQLMode
 EventInputFilter = typing.Annotated["EventInputFilter", strawberry.lazy(".EventGQLModel")]
 UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".UserGQLModel")]
 
-@createInputs2
+# @createInputs2  # Commented out to avoid Apollo Gateway syntax errors with multiline descriptions
+@strawberry.input
 class EventInvitationInputFilter:
-    id: IDType
-    event_id: IDType
-    user_id: IDType
-    state_id: IDType
+    id: typing.Optional[IDType] = None
+    event_id: typing.Optional[IDType] = None
+    user_id: typing.Optional[IDType] = None
+    state_id: typing.Optional[IDType] = None
 
-    event: EventInputFilter = strawberry.field(description="""Event filter operators, 
-for field "event" the filters could be
-{"event": {"start_date": {"_ge": "2025-06-30T18:01:59"}}}
-{"event": {"end_date": {"_le": "2025-06-30T18:01:59"}}}
-{"event": {"_and": [{"start_date": {"_ge": "2025-06-30T18:01:59"}}, {"end_date": {"_le": "2025-06-30T18:01:59"}}]}}
-""")
+    event: typing.Optional[EventInputFilter] = None
 
 @strawberry.federation.type(
     keys=["id"], description="""Entity representing a Invitation to an Event and also presence of a user, invitation state and presence is managed by state"""
@@ -123,9 +119,7 @@ class EventInvitationQuery:
 
 
 from uoishelpers.resolvers import InputModelMixin
-@strawberry.input(
-    description="""EventInvitation insert mutation"""
-)
+@strawberry.input
 class EventInvitationInsertGQLModel(InputModelMixin):
     getLoader = EventInvitationGQLModel.getLoader
     event_id: typing.Optional[IDType] = strawberry.field(
@@ -148,9 +142,7 @@ class EventInvitationInsertGQLModel(InputModelMixin):
         default=None,
     )
 
-@strawberry.input(
-    description="""EventInvitation update mutation"""
-)
+@strawberry.input
 class EventInvitationUpdateGQLModel:
     id: IDType = strawberry.field(
         description="""id"""
@@ -172,9 +164,7 @@ class EventInvitationUpdateGQLModel:
 
     changedby_id: strawberry.Private[IDType] = None
 
-@strawberry.input(
-    description="""EventInvitation delete mutation"""
-)
+@strawberry.input
 class EventInvitationDeleteGQLModel:
     id: IDType = strawberry.field(
         description="""EventInvitation id"""

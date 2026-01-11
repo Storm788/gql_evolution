@@ -15,15 +15,9 @@ from strawberry.federation.schema_directive import schema_directive, Location
 from strawberry.directive import DirectiveLocation
 @schema_directive(
     repeatable=True,
-    compose=True,
-    description="Description for foreign keys",
     locations=[Location.INPUT_FIELD_DEFINITION, Location.FIELD_DEFINITION, DirectiveLocation.FIELD],
 )
 class Relation:
-    """
-    @relation(to: Typ, field: 'id')
-    říká, že pole inputu je cizí klíč na zadaný typ.
-    """
     to: str
     field: str = "id"
 

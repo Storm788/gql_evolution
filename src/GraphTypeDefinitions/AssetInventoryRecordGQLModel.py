@@ -18,21 +18,29 @@ from uoishelpers.resolvers import (
 
 from .BaseGQLModel import BaseGQLModel, IDType, Relation
 from .context_utils import ensure_user_in_context
+from .permissions import is_admin_user
+from src.error_codes import format_error_message
+from uuid import UUID as ErrorCodeUUID
 
 AssetGQLModel = typing.Annotated["AssetGQLModel", strawberry.lazy(".AssetGQLModel")]
 UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".UserGQLModel")]
 
 
-@createInputs2
+# @createInputs2  # Commented out to avoid Apollo Gateway syntax errors with multiline descriptions
+@strawberry.input
 class AssetInventoryRecordInputFilter:
-    id: IDType
-    asset_id: IDType
-    record_date: datetime.datetime
-    status: str
-    checked_by_user_id: IDType
+    id: typing.Optional[IDType] = None
+    asset_id: typing.Optional[IDType] = None
+    record_date: typing.Optional[datetime.datetime] = None
+    status: typing.Optional[str] = None
+    checked_by_user_id: typing.Optional[IDType] = None
 
 
-@strawberry.federation.type(keys=["id"], description="Inventory check record of an asset")
+@strawberry.federation.type(keys=["id"], description="""Physical inventory check record documenting asset verification.
+Records periodic inspections to confirm asset presence, condition, and location accuracy.
+Each record captures who performed the check, when it was done, the asset's status, and any observations.
+Essential for compliance, asset tracking accuracy, and identifying missing or damaged items.
+Supports audit trails and inventory reconciliation processes.""")
 class AssetInventoryRecordGQLModel(BaseGQLModel):
     @classmethod
     def getLoader(cls, info: strawberry.types.Info):
@@ -68,18 +76,93 @@ class AssetInventoryRecordGQLModel(BaseGQLModel):
 
 @strawberry.type(description="Inventory record queries")
 class AssetInventoryRecordQuery:
-    asset_inventory_record_by_id: typing.Optional[AssetInventoryRecordGQLModel] = strawberry.field(
-        description="Get inventory record by id", permission_classes=[OnlyForAuthentized], resolver=AssetInventoryRecordGQLModel.load_with_loader
+    @strawberry.field(
+        description="Get inventory record by id",
+        permission_classes=[OnlyForAuthentized]
     )
-    asset_inventory_record_page: typing.List[AssetInventoryRecordGQLModel] = strawberry.field(
-        description="Page of inventory records", permission_classes=[OnlyForAuthentized], resolver=PageResolver[AssetInventoryRecordGQLModel](whereType=AssetInventoryRecordInputFilter)
+    async def asset_inventory_record_by_id(
+        self, info: strawberry.types.Info, id: IDType
+    ) -> typing.Optional[AssetInventoryRecordGQLModel]:
+        """Admin vidí všechno; běžný uživatel jen záznamy pro své assety"""
+        loader = getLoadersFromInfo(info).AssetInventoryRecordModel
+        record = await loader.load(id)
+        if record is None:
+            return None
+        
+        user = ensure_user_in_context(info)
+        if user is None:
+            return None
+        
+        # Admin vidí všechno
+        if is_admin_user(user):
+            return AssetInventoryRecordGQLModel.from_dataclass(record)
+        
+        # Běžný uživatel - musíme zkontrolovat, zda je custodian assetu
+        asset_loader = getLoadersFromInfo(info).AssetModel
+        asset = await asset_loader.load(record.asset_id)
+        if asset and str(asset.custodian_user_id) == str(user.get("id")):
+            return AssetInventoryRecordGQLModel.from_dataclass(record)
+        
+        return None
+
+    @strawberry.field(
+        description="Page of inventory records",
+        permission_classes=[OnlyForAuthentized]
     )
+    async def asset_inventory_record_page(
+        self,
+        info: strawberry.types.Info,
+        skip: int = 0,
+        limit: int = 10,
+        orderby: typing.Optional[str] = None,
+        where: typing.Optional[AssetInventoryRecordInputFilter] = None,
+    ) -> typing.List[AssetInventoryRecordGQLModel]:
+        """Admin vidí všechno; běžný uživatel jen záznamy pro své assety"""
+        user = ensure_user_in_context(info)
+        if user is None:
+            return []
+        
+        loader = getLoadersFromInfo(info).AssetInventoryRecordModel
+        
+        # Admin vidí všechno
+        if is_admin_user(user):
+            print(f"DEBUG inventory_record_page: Admin - vracím všechny záznamy")
+            results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
+            return [AssetInventoryRecordGQLModel.from_dataclass(row) for row in results]
+        
+        # Běžný uživatel - najdeme jeho assety a pak inventory records pro tyto assety
+        uid = str(user.get("id"))
+        print(f"DEBUG inventory_record_page: Non-admin user {uid}")
+        
+        try:
+            user_uuid = IDType(uid)
+            # Najdi assety, kde je uživatel custodian
+            asset_loader = getLoadersFromInfo(info).AssetModel
+            user_assets = await asset_loader.filter_by(custodian_user_id=user_uuid)
+            asset_ids = [asset.id for asset in user_assets]
+            
+            if not asset_ids:
+                print(f"DEBUG: Uživatel nemá žádné assety")
+                return []
+            
+            # Najdi inventory records pro tyto assety
+            all_records = []
+            for asset_id in asset_ids:
+                records = await loader.filter_by(asset_id=asset_id)
+                all_records.extend(records)
+            
+            print(f"DEBUG: Nalezeno {len(all_records)} inventory records")
+            all_records = list(all_records)[skip:skip+limit] if skip or limit else all_records
+            return [AssetInventoryRecordGQLModel.from_dataclass(row) for row in all_records]
+        except Exception as e:
+            print(f"ERROR filtering inventory records: {e}")
+            return []
 
 
 from uoishelpers.resolvers import InputModelMixin
 
 
-@strawberry.input(description="Inventory record insert input")
+@strawberry.input
 class AssetInventoryRecordInsertGQLModel(InputModelMixin):
     getLoader = AssetInventoryRecordGQLModel.getLoader
     id: typing.Optional[IDType] = strawberry.field(description="id", default=None)
@@ -93,7 +176,7 @@ class AssetInventoryRecordInsertGQLModel(InputModelMixin):
     createdby_id: strawberry.Private[IDType] = None
 
 
-@strawberry.input(description="Inventory record update input")
+@strawberry.input
 class AssetInventoryRecordUpdateGQLModel(InputModelMixin):
     getLoader = AssetInventoryRecordGQLModel.getLoader
     id: IDType = strawberry.field(description="id")
@@ -106,7 +189,7 @@ class AssetInventoryRecordUpdateGQLModel(InputModelMixin):
     changedby_id: strawberry.Private[IDType] = None
 
 
-@strawberry.input(description="Inventory record delete input")
+@strawberry.input
 class AssetInventoryRecordDeleteGQLModel:
     id: IDType = strawberry.field(description="id")
     lastchange: datetime.datetime = strawberry.field(description="lastchange")

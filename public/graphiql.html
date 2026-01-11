@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GraphiQL - Asset Management API</title>
+    <style>
+        body {
+            height: 100%;
+            margin: 0;
+            width: 100%;
+            overflow: hidden;
+        }
+        #graphiql {
+            height: 100vh;
+        }
+    </style>
+    <script
+        crossorigin
+        src="https://unpkg.com/react@18/umd/react.production.min.js"
+    ></script>
+    <script
+        crossorigin
+        src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
+    ></script>
+    <link rel="stylesheet" href="https://unpkg.com/graphiql/graphiql.min.css" />
+</head>
+<body>
+  <div id="userbar" style="padding:8px 12px;background:#f5f5f5;border-bottom:1px solid #ddd;font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
+    <span id="userlabel">Uživatel: Načítám…</span>
+  </div>
+  <div id="graphiql" style="height: calc(100vh - 40px);">Loading...</div>
+    <script
+        src="https://unpkg.com/graphiql/graphiql.min.js"
+        type="application/javascript"
+    ></script>
+    <script>
+        const fetcher = GraphiQL.createFetcher({
+          url: '/gql',
+        });
+
+        // Load current user label
+        fetch('/whoami')
+          .then(r => r.json())
+          .then(data => {
+            const label = (data && data.label) ? data.label : 'Bez uživatele';
+            document.getElementById('userlabel').textContent = `Uživatel: ${label}`;
+          })
+          .catch(() => {
+            document.getElementById('userlabel').textContent = 'Uživatel: Bez uživatele';
+          });
+        
+        ReactDOM.render(
+            React.createElement(GraphiQL, {
+                fetcher: fetcher,
+                headerEditorEnabled: true,
+                defaultQuery: `# Evidence majetku – GraphQL
+#
+# Příklady dotazů:
+
+# 1. List all assets (admin only sees all, users see their own)
+query GetAssets {
+  assetPage(skip: 0, limit: 10) {
+    id
+    name
+    category
+    location
+    custodianUserId
+  }
+}
+
+# 2. Get asset loans
+query GetLoans {
+  assetLoanPage(skip: 0, limit: 10) {
+    id
+    borrowerUserId
+    borrowerUserEmail
+    borrowerUserFullname
+    startdate
+    enddate
+    note
+    asset {
+      name
+    }
+  }
+}
+
+# 3. Create a loan (admin only)
+mutation CreateLoan {
+  assetLoanInsert(loan: {
+    assetId: "a1111111-1111-4111-8111-111111111111"
+    borrowerUserId: "6a6ca6e9-2222-498f-b270-b7b07c2afa41"
+    startdate: "2024-09-01T08:00:00"
+    enddate: "2024-09-10T18:00:00"
+    note: "Loan for conference"
+  }) {
+    ... on AssetLoanGQLModel {
+      id
+      borrowerUserFullname
+    }
+    ... on AssetLoanGQLModelInsertError {
+      msg
+      code
+    }
+  }
+}
+
+# Hlavičky pro testování:
+# {
+#   "x-demo-user-id": "76dac14f-7114-4bb2-882d-0d762eab6f4a"
+# }
+`,
+            }),
+            document.getElementById('graphiql'),
+        );
+    </script>
+</body>
+</html>
