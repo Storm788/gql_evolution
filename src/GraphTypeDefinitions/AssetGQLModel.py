@@ -20,7 +20,7 @@ from uoishelpers.resolvers import InputModelMixin
 
 from .BaseGQLModel import BaseGQLModel, IDType, Relation
 from .context_utils import ensure_user_in_context
-from .permissions import is_admin_user
+from .permissions import user_has_role, RequireAdmin, RequireEditor, RequireViewer
 from src.error_codes import format_error_message
 from uuid import UUID as ErrorCodeUUID
 
@@ -159,7 +159,7 @@ class AssetQuery:
             return None
         
         # Admin vidí všechno
-        if is_admin_user(user):
+        if await user_has_role(user, "administrátor", info):
             return AssetGQLModel.from_dataclass(row)
         
         # Běžný uživatel vidí jen assety, kde je custodian
@@ -188,7 +188,7 @@ class AssetQuery:
         loader = getLoadersFromInfo(info).AssetModel
         
         # Admin vidí všechno
-        if is_admin_user(user):
+        if await user_has_role(user, "administrátor", info):
             print(f"DEBUG asset_page: Admin - vracím všechny assety")
             results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
             return [AssetGQLModel.from_dataclass(row) for row in results]
@@ -297,7 +297,7 @@ class AssetMutation:
             )
         
         # Only admin can create assets
-        admin = is_admin_user(user)
+        admin = await user_has_role(user, "administrátor", info)
         try:
             print(f"DEBUG asset_insert: user={user.get('id')} admin={admin}")
         except Exception:
@@ -331,7 +331,7 @@ class AssetMutation:
                 _input=asset
             )
         
-        admin = is_admin_user(user)
+        admin = await user_has_role(user, "administrátor", info)
         try:
             print(f"DEBUG asset_update: user={user.get('id')} admin={admin}")
         except Exception:
@@ -365,7 +365,7 @@ class AssetMutation:
                 _input=asset
             )
         
-        admin = is_admin_user(user)
+        admin = await user_has_role(user, "administrátor", info)
         try:
             print(f"DEBUG asset_delete: user={user.get('id')} admin={admin}")
         except Exception:

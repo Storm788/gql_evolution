@@ -33,7 +33,6 @@ schema = strawberry.federation.Schema(
         AssetLoanGQLModel,
     ), 
     scalar_overrides={datetime.timedelta: timedelta._scalar_definition},
-
     extensions=[],
     schema_directives=[]
     

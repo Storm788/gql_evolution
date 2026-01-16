@@ -5,6 +5,23 @@ import json
 from pathlib import Path
 
 from uoishelpers.gqlpermissions import OnlyForAuthentized
+
+# Patch OnlyForAuthentized for debug: monkey-patch has_permission to print user context
+try:
+    orig_has_permission = OnlyForAuthentized.has_permission
+    async def debug_has_permission(self, source, info, **kwargs):
+        import sys
+        user = None
+        try:
+            from src.GraphTypeDefinitions.context_utils import ensure_user_in_context
+            user = ensure_user_in_context(info)
+        except Exception as e:
+            print(f"[DEBUG] OnlyForAuthentized: could not get user: {e}", flush=True)
+        print(f"[DEBUG] OnlyForAuthentized: user={user}", flush=True)
+        return await orig_has_permission(self, source, info, **kwargs)
+    OnlyForAuthentized.has_permission = debug_has_permission
+except Exception as e:
+    print(f"[DEBUG] OnlyForAuthentized monkey-patch failed: {e}", flush=True)
 from uoishelpers.resolvers import (
     getLoadersFromInfo,
     createInputs2,
@@ -20,7 +37,7 @@ from uoishelpers.resolvers import (
 
 from .BaseGQLModel import BaseGQLModel, IDType, Relation
 from .context_utils import ensure_user_in_context
-from src.GraphTypeDefinitions.permissions import is_admin_user
+from src.GraphTypeDefinitions.permissions import user_has_role
 from src.error_codes import format_error_message
 from uuid import UUID as ErrorCodeUUID
 
@@ -97,12 +114,14 @@ class AssetLoanGQLModel(BaseGQLModel):
         return getLoadersFromInfo(info).AssetLoanModel
 
     asset_id: typing.Optional[IDType] = strawberry.field(
+        name="assetId",
         description="Asset id",
         default=None,
         permission_classes=[OnlyForAuthentized],
         directives=[Relation(to="AssetGQLModel")]
     )
     borrower_user_id: typing.Optional[IDType] = strawberry.field(
+        name="borrowerUserId",
         description="Borrower user id",
         default=None,
         permission_classes=[OnlyForAuthentized],
@@ -158,7 +177,7 @@ class AssetLoanQuery:
         if user is None:
             return None
         # Admin může vidět všechno, běžný uživatel jen své půjčky
-        if is_admin_user(user) or str(row.borrower_user_id) == str(user.get("id")):
+        if await user_has_role(user, "administrátor", info) or str(row.borrower_user_id) == str(user.get("id")):
             return AssetLoanGQLModel.from_dataclass(row)
         return None
 
@@ -182,7 +201,7 @@ class AssetLoanQuery:
 
         uid = str(user.get("id"))
         user_email = user.get("email", "")
-        is_admin = is_admin_user(user)
+        is_admin = await user_has_role(user, "administrátor", info)
         print(f"DEBUG asset_loan_page: User ID: {uid}, Email: {user_email}, Is Admin: {is_admin}")
         loader = getLoadersFromInfo(info).AssetLoanModel
 
@@ -224,8 +243,9 @@ from uoishelpers.resolvers import InputModelMixin
 class AssetLoanInsertGQLModel(InputModelMixin):
     getLoader = AssetLoanGQLModel.getLoader
     id: typing.Optional[IDType] = strawberry.field(description="id", default=None)
-    asset_id: IDType = strawberry.field(description="Asset id")
+    asset_id: IDType = strawberry.field(name="assetId", description="Asset id")
     borrower_user_id: typing.Optional[IDType] = strawberry.field(
+        name="borrowerUserId",
         description="Borrower user id (defaults to current user)",
         default=None
     )
@@ -258,8 +278,19 @@ class AssetLoanDeleteGQLModel:
 
 @strawberry.type(description="Asset loan mutations")
 class AssetLoanMutation:
-    @strawberry.field(description="Insert loan", permission_classes=[OnlyForAuthentized])
+    @strawberry.field(name="assetLoanInsert", description="Insert loan", permission_classes=[OnlyForAuthentized])
     async def asset_loan_insert(self, info: strawberry.types.Info, loan: AssetLoanInsertGQLModel) -> typing.Union[AssetLoanGQLModel, InsertError[AssetLoanGQLModel]]:
+        import os
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        log_path = os.path.join(project_root, '../../assetloan.log')
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write("resolver called\n")
+        except Exception as e:
+            pass
+        import logging
+        logging.error("DEBUG assetLoanInsert: resolver called")
+        print("[DEBUG] assetLoanInsert: resolver called", flush=True)
         user = ensure_user_in_context(info)
         if user is None:
             error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
@@ -270,15 +301,34 @@ class AssetLoanMutation:
                 _input=loan
             )
 
-        # Pouze admin (Estera) může přidávat půjčky
-        if not is_admin_user(user):
-            error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5d")
+        # Pouze admin (role) může přidávat půjčky
+
+        import logging
+
+        logging.info("--- RBAC Check for asset_loan_insert ---")
+        logging.info(f"User from context: {user}")
+
+        if not user or not user.get("id"):
+            logging.warning("Permission denied: No valid user in context.")
+            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d") # Unauthorized
             return InsertError[AssetLoanGQLModel](
-                msg=format_error_message(error_code),
-                code=error_code,
-                _entity=None,
-                _input=loan
+                msg="Permission denied: User is not authenticated.",
+                code=error_code
             )
+
+        logging.info(f"Checking for 'administrátor' role for user_id: {user.get('id')}")
+        has_admin_role = await user_has_role(user, "administrátor", info)
+        logging.info(f"Role check result: has_admin_role = {has_admin_role}")
+
+        if not has_admin_role:
+            logging.warning(f"Permission denied: User {user.get('id')} does not have 'administrátor' role.")
+            error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5d") # Forbidden
+            return InsertError[AssetLoanGQLModel](
+                msg="Permission denied: 'administrator' role required.",
+                code=error_code
+            )
+        
+        logging.info("--- RBAC Check Passed ---")
 
         result = await Insert[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
         return result
@@ -295,7 +345,8 @@ class AssetLoanMutation:
                 _input=loan
             )
         
-        if not is_admin_user(user):
+
+        if not await user_has_role(user, "administrátor", info):
             error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5e")
             return UpdateError[AssetLoanGQLModel](
                 msg=format_error_message(error_code),
@@ -319,7 +370,8 @@ class AssetLoanMutation:
                 _input=loan
             )
         
-        if not is_admin_user(user):
+
+        if not await user_has_role(user, "administrátor", info):
             error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5f")
             return DeleteError[AssetLoanGQLModel](
                 msg=format_error_message(error_code),

@@ -33,9 +33,33 @@
         type="application/javascript"
     ></script>
     <script>
-        const fetcher = GraphiQL.createFetcher({
-          url: '/gql',
-        });
+
+        // Helper to get x-demo-user-id from localStorage or cookie
+        function getDemoUserId() {
+          // Try localStorage
+          let id = window.localStorage && window.localStorage.getItem('x-demo-user-id');
+          if (id) return id;
+          // Try cookie
+          const match = document.cookie.match(/(?:^|; )demo-user-id=([^;]*)/);
+          if (match) return decodeURIComponent(match[1]);
+          return '';
+        }
+
+        // Custom fetcher that always sends x-demo-user-id header
+        const fetcher = (graphQLParams, opts = {}) => {
+          const demoUserId = getDemoUserId();
+          const headers = Object.assign({}, opts.headers || {}, {
+            'x-demo-user-id': demoUserId || ''
+          });
+          return fetch('/graphql', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers
+            },
+            body: JSON.stringify(graphQLParams),
+          });
+        };
 
         // Load current user label
         fetch('/whoami')

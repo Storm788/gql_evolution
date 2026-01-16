@@ -1,32 +1,78 @@
-# 🧾 Deníček – commity
+# 🧾 Evidence majetku - GQL Evolution
 
-### Zadání
-**6. Evidence majetku, majetek, inventarizační záznam, zápůjčky**  
-Projekt pro dva studenty.  
-Vyjít z vlastní zkušenosti – seznam věcí, které byly zapůjčeny.  
-Zahrnout provedené kontroly evidovaných věcí.
+**Projekt pro správu majetku, inventarizace a zápůjček**
 
 ---
 
-## Říjen 2025 – Základ projektu
+## 🚀 Rychlý start
 
-### 27. 10. 2025 | Push 1: Správa majetku
-Kompletní CRUD systém pro správu assetů.  
-Nové modely, dotazy a testy.  
-Řešený problém: napojení inventárních záznamů na skupinové vlastnictví a konzistence při autorizaci.
+### Spuštění celého stacku
+
+```powershell
+docker-compose -f docker-compose.debug.yml up
+```
+
+### Přístup k GraphiQL
+
+**👉 http://localhost:33001/graphiql/**
+
+### První kroky
+
+1. Otevři GraphiQL: http://localhost:33001/graphiql/
+2. Nastav header:
+   ```json
+   {"x-demo-user-id": "76dac14f-7114-4bb2-882d-0d762eab6f4a"}
+   ```
+3. Zkus query:
+   ```graphql
+   query { who_am_i { email name } }
+   ```
+
+**📚 Kompletní průvodce:** [docs/GATEWAY_USAGE.md](docs/GATEWAY_USAGE.md)
 
 ---
 
-### 29. 10. 2025 | Push 2: Stabilní build 1.0
-Refaktor `src/DBFeeder.py`, sladění `main.py` s Docker orchestrací.  
-Hodinové porovnávání JSON výstupů – ručně dohledané rozdíly v timezone offsetech, které způsobovaly chyby při importu.
+## 📚 Dokumentace
+
+| Dokument | Popis |
+|----------|-------|
+| **[docs/GATEWAY_USAGE.md](docs/GATEWAY_USAGE.md)** | ⭐ Kompletní průvodce, začni tady |
+| **[docs/GRAPHIQL_CHEATSHEET.md](docs/GRAPHIQL_CHEATSHEET.md)** | ⚡ Rychlé copy-paste queries |
+| **[docs/RBAC_GUIDE.md](docs/RBAC_GUIDE.md)** | 🔐 Role a oprávnění |
+| **[docs/rbac_examples.py](docs/rbac_examples.py)** | 💡 Příklady kódu |
+| **[docs/README.md](docs/README.md)** | 📋 Přehled dokumentace |
 
 ---
 
-### 31. 10. 2025 | Push 3: Release 1.1
-Regenerace `systemdata.json` a `systemdata.backup.json`, dočasný formát výstupu.  
-Kontrola exportu – generátor občas duplikoval pozvánky a vytvářel sirotčí záznamy bez vazby.  
-Po opravě a testech export proběhl bez chyb.
+## 🏗️ Architektura
+
+```
+Frontend + GraphiQL (:33001) → Apollo Gateway (:33000) → Subgraphs
+                                                          ├─ Evolution (Assets) :8001
+                                                          └─ UG (Users/Groups) :8000
+```
+
+---
+
+## 🔑 Testovací uživatelé
+
+| Jméno | Role | User ID |
+|-------|------|---------|
+| Estera Lučková | 👑 Admin | `76dac14f-7114-4bb2-882d-0d762eab6f4a` |
+| Ornela Nová | ✏️ Editor | `678a2389-dd49-4d44-88be-28841ae34df1` |
+| Dalimil Kovář | 👁️ Viewer | `83981199-2134-4724-badf-cd1f0f38babf` |
+
+---
+
+## 📋 Features
+
+- ✅ CRUD operace pro majetek (assets)
+- ✅ Inventarizační záznamy
+- ✅ Systém zápůjček
+- ✅ RBAC (Role-Based Access Control)
+- ✅ Apollo Federation
+- ✅ GraphiQL interface
+- ✅ Docker Compose deployment
 
 ---
 
@@ -100,6 +146,40 @@ Po opravě a testech export proběhl bez chyb.
 - Federované entity:
   - `Asset`, `AssetLoan`, `AssetInventoryRecord`, `User`, `Group`
 - Výsledek: jednotný GraphQL endpoint nad více subgraphy.
+
+---
+
+### 11. 01. 2026 | Push 13: Complete RBAC System + Documentation
+
+**Hlavní změny:**
+- ✅ Kompletní **RBAC (Role-Based Access Control)** systém
+- ✅ Opraveno načítání `.env` souboru (`override=True`)
+- ✅ Rozšířen `permissions.py` o role-based permissions:
+  - `RequireAdmin` - pouze administrátor
+  - `RequireEditor` - editor nebo admin  
+  - `RequireViewer` - viewer nebo vyšší
+  - `RequireRole(roles=[...])` - vlastní kombinace
+- ✅ Helper funkce pro práci s rolemi:
+  - `get_user_roles_from_db()` - načítání rolí z DB
+  - `user_has_role()` - kontrola jedné role
+  - `user_has_any_role()` - kontrola více rolí
+- ✅ Vytvořena kompletní dokumentace:
+  - [docs/GATEWAY_USAGE.md](docs/GATEWAY_USAGE.md) - Kompletní průvodce
+  - [docs/GRAPHIQL_CHEATSHEET.md](docs/GRAPHIQL_CHEATSHEET.md) - Rychlý cheatsheet
+  - [docs/RBAC_GUIDE.md](docs/RBAC_GUIDE.md) - Detailní RBAC průvodce
+  - [docs/rbac_examples.py](docs/rbac_examples.py) - 7 příkladů použití
+  - [docs/README.md](docs/README.md) - Přehled dokumentace
+- ✅ Aktualizován hlavní README s quick start
+- ✅ Server nyní správně běží v DEMO módu
+
+**Technické detaily:**
+- Oprávnění jsou vázána na **role v databázi**, ne na hardcoded user IDs
+- Role: `administrátor`, `editor`, `viewer`, `čtenář`
+- Uživatelé získávají oprávnění prostřednictvím přiřazení do rolí (tabulka `roles`)
+- Admin by ID (Estera) má vždy všechna oprávnění jako fallback
+- Apollo Gateway běží na portu 33000, Frontend na 33001
+
+**Pro práci použijte:** http://localhost:33001/graphiql/
 
 ---
 

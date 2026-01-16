@@ -1,24 +1,41 @@
+version: '3.8'
 x-services-volume:
   &system-data-volume
   type: bind
   source: ./systemdata.combined.json
   target: /app/systemdata.json
 
-
 services:
+  evolution:
+    build:
+      context: .
+    environment:
+      - DEMO=False
+      - DEMODATA=True
+      - POSTGRES_HOST=postgres_gql:5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=example
+      - POSTGRES_DB=data
+      - GQLUG_ENDPOINT_URL=http://gql_ug:8000/gql
+    ports:
+      - 8000:8000
+    depends_on:
+      - postgres_gql
+    volumes:
+      - ./systemdata.combined.json:/app/systemdata.combined.json
   proxy:
     image: proxy
     restart: unless-stopped
     build:
       context: ./proxy  # Path to the directory containing the Dockerfile
     environment:
-      - TARGET_SERVER=http://host.docker.internal:8001
+      - TARGET_SERVER=http://frontend:8000
 
   frontend:
     image: hrbolek/frontend
     environment:
-      - DEMO=True
-      - DEMODATA=False
+      - DEMO=False
+      - DEMODATA=True
       # link na db mimo stack
       # - POSTGRES_HOST=host.docker.internal:5432
       - POSTGRES_HOST=postgres_credentials:5432
@@ -26,6 +43,7 @@ services:
       - POSTGRES_PASSWORD=example
       - POSTGRES_DB=data
       - GQL_PROXY=http://apollo:3000/api/gql/
+      - GQLUG_ENDPOINT_URL=http://gql_ug:8000/gql
       - SALT=fe1c71b2-74c0-41e5-978f-eecbffac7418
     healthcheck:
       # definice, umoznujici provest test, zda je kontejner v poradku (vsimnete si portu)
@@ -52,6 +70,8 @@ services:
   apollo:
     image: hrbolek/apollo_federation
     # image: apollofederation:latest
+    extra_hosts:
+      - host.docker.internal:host-gateway
     environment:
       # promenne, ktere lze cist v kontejneru
       # SERVICES je json array popisujici jednotlive dostupne sluzby
@@ -59,24 +79,28 @@ services:
       - |
         SERVICES=
         [
-          {"name": "evolution", "url": "http://proxy:8001/gql"},
+          {"name": "evolution", "url": "http://host.docker.internal:33001/gql"},
           {"name": "ug", "url": "http://gql_ug:8000/gql"}
-        ]       
+        ]
     healthcheck:
       # definice, umoznujici provest test, zda je kontejner v poradku (vsimnete si portu a srovnejte s portem v environment)
       interval: 60s
       retries: 3
       start_period: 60s
       timeout: 10s
-    restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    ports: # Pro testování federace lokálně
+    restart: on-failure
+    ports: #v deploymentu by nebylo zadne mapovani portu
+      # vnejsi port : port, kde sluzbu poskytuje kontejner
       - 33000:3000
     deploy:
       replicas: 1
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: '512M'
     depends_on:
       - proxy
       - gql_ug
-
 
   gql_ug:
     image: hrbolek/gql_ug
@@ -101,8 +125,8 @@ services:
     # deploy:
     #   replicas: 3
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
-    # ports:
-    #   - 33012:8000
+    ports:
+      - 33012:8000
     depends_on:
       - postgres_gql
     volumes:
@@ -123,7 +147,7 @@ services:
       retries: 5
     restart: on-failure:3 # nedojde k restartu pokud je kontejner "unhealthy", maximalne 3 pokusy
     ports:
-      - 5432:5432
+      - 5434:5432
 
   postgres_credentials:
     image: postgres
@@ -152,7 +176,7 @@ services:
     restart: always
     environment:
       # promenne, ktere lze cist v kontejneru
-      - PGADMIN_DEFAULT_EMAIL=anoyne@anywhere.com
+      - PGADMIN_DEFAULT_EMAIL=anyone@anywhere.com
       - PGADMIN_DEFAULT_PASSWORD=example
     healthcheck:
       test: ["CMD", "wget", "-O", "-", "http://localhost:80/misc/ping"]

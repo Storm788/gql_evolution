@@ -18,7 +18,7 @@ from uoishelpers.resolvers import (
 
 from .BaseGQLModel import BaseGQLModel, IDType, Relation
 from .context_utils import ensure_user_in_context
-from .permissions import is_admin_user
+from .permissions import user_has_role
 from src.error_codes import format_error_message
 from uuid import UUID as ErrorCodeUUID
 
@@ -94,7 +94,7 @@ class AssetInventoryRecordQuery:
             return None
         
         # Admin vidí všechno
-        if is_admin_user(user):
+        if await user_has_role(user, "administrátor", info):
             return AssetInventoryRecordGQLModel.from_dataclass(record)
         
         # Běžný uživatel - musíme zkontrolovat, zda je custodian assetu
@@ -125,7 +125,7 @@ class AssetInventoryRecordQuery:
         loader = getLoadersFromInfo(info).AssetInventoryRecordModel
         
         # Admin vidí všechno
-        if is_admin_user(user):
+        if await user_has_role(user, "administrátor", info):
             print(f"DEBUG inventory_record_page: Admin - vracím všechny záznamy")
             results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
             return [AssetInventoryRecordGQLModel.from_dataclass(row) for row in results]
@@ -209,7 +209,7 @@ class AssetInventoryRecordMutation:
                 _input=record
             )
         
-        if not is_admin_user(user):
+        if not await user_has_role(user, "administrátor", info):
             error_code = ErrorCodeUUID("5b9c3d4e-6f7a-4c8d-0e1f-2a3b4c5d6e7f")
             return InsertError[AssetInventoryRecordGQLModel](
                 msg=format_error_message(error_code),
@@ -233,7 +233,7 @@ class AssetInventoryRecordMutation:
                 _input=record
             )
         
-        if not is_admin_user(user):
+        if not await user_has_role(user, "administrátor", info):
             error_code = ErrorCodeUUID("5b9c3d4e-6f7a-4c8d-0e1f-2a3b4c5d6e80")
             return UpdateError[AssetInventoryRecordGQLModel](
                 msg=format_error_message(error_code),
@@ -257,7 +257,7 @@ class AssetInventoryRecordMutation:
                 _input=record
             )
         
-        if not is_admin_user(user):
+        if not await user_has_role(user, "administrátor", info):
             error_code = ErrorCodeUUID("5b9c3d4e-6f7a-4c8d-0e1f-2a3b4c5d6e81")
             return DeleteError[AssetInventoryRecordGQLModel](
                 msg=format_error_message(error_code),

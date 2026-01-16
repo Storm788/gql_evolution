@@ -106,6 +106,8 @@ async def initDB(asyncSessionMaker, filename: PathInput = DEFAULT_DATA_PATH):
     # Pak přidáme manuální import pro asset data, pokud standardní nefunguje - POUZE v demo módu
     if isDemo:
         async with asyncSessionMaker() as session:
+            from sqlalchemy import select
+            
             # Import assets
             if "assets_evolution" in jsonData:
                 assets = jsonData["assets_evolution"]
@@ -113,8 +115,16 @@ async def initDB(asyncSessionMaker, filename: PathInput = DEFAULT_DATA_PATH):
                 for asset_data in assets:
                     # Filtruj metadata pole začínající podtržítkem
                     clean_data = {k: v for k, v in asset_data.items() if not k.startswith('_')}
-                    asset = AssetModel(**clean_data)
-                    session.add(asset)
+                    asset_id = clean_data.get('id')
+                    
+                    # Zkontroluj, jestli asset už neexistuje
+                    existing = await session.execute(
+                        select(AssetModel).where(AssetModel.id == asset_id)
+                    )
+                    if existing.scalar_one_or_none() is None:
+                        asset = AssetModel(**clean_data)
+                        session.add(asset)
+                
                 await session.commit()
                 print(f"DEBUG: Assets inserted", flush=True)
             
@@ -125,8 +135,16 @@ async def initDB(asyncSessionMaker, filename: PathInput = DEFAULT_DATA_PATH):
                 for loan_data in loans:
                     # Filtruj metadata pole začínající podtržítkem
                     clean_data = {k: v for k, v in loan_data.items() if not k.startswith('_')}
-                    loan = AssetLoanModel(**clean_data)
-                    session.add(loan)
+                    loan_id = clean_data.get('id')
+                    
+                    # Zkontroluj, jestli loan už neexistuje
+                    existing = await session.execute(
+                        select(AssetLoanModel).where(AssetLoanModel.id == loan_id)
+                    )
+                    if existing.scalar_one_or_none() is None:
+                        loan = AssetLoanModel(**clean_data)
+                        session.add(loan)
+                
                 await session.commit()
                 print(f"DEBUG: Loans inserted", flush=True)
             
@@ -137,8 +155,16 @@ async def initDB(asyncSessionMaker, filename: PathInput = DEFAULT_DATA_PATH):
                 for record_data in records:
                     # Filtruj metadata pole začínající podtržítkem
                     clean_data = {k: v for k, v in record_data.items() if not k.startswith('_')}
-                    record = AssetInventoryRecordModel(**clean_data)
-                    session.add(record)
+                    record_id = clean_data.get('id')
+                    
+                    # Zkontroluj, jestli record už neexistuje
+                    existing = await session.execute(
+                        select(AssetInventoryRecordModel).where(AssetInventoryRecordModel.id == record_id)
+                    )
+                    if existing.scalar_one_or_none() is None:
+                        record = AssetInventoryRecordModel(**clean_data)
+                        session.add(record)
+                
                 await session.commit()
                 print(f"DEBUG: Inventory records inserted", flush=True)
 

@@ -4,7 +4,7 @@ import asyncio
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response, Form
 from fastapi.responses import JSONResponse, FileResponse
 from strawberry.fastapi import GraphQLRouter
 
@@ -112,52 +112,63 @@ DEMO_DEFAULT_USER_ID = os.getenv(
 
 
 def _pick_demo_user_id(request: Request) -> str | None:
-    """Resolve the user identifier to be injected into context in demo mode."""
+    """
+    Určuje ID uživatele pro kontext v demo režimu s několika úrovněmi priority.
+    """
     
-    # PRIORITA 1: x-demo-user-id header (pro manuální testování)
-    header_key = "x-demo-user-id"
-    candidate = request.headers.get(header_key)
+    # PRIORITA 1: x-demo-user-id hlavička (pro manuální testování)
+    candidate = request.headers.get("x-demo-user-id")
     if candidate:
-        print(f"DEBUG _pick_demo_user_id: Using x-demo-user-id header: {candidate}")
+        print(f"DEBUG: User ID from 'x-demo-user-id' header: {candidate}")
         return candidate.strip()
 
-    # PRIORITA 2: demo-user-id cookie (nastavená z UG nebo ručně)
-    cookie = request.cookies.get("demo-user-id")
-    if cookie:
-        print(f"DEBUG _pick_demo_user_id: Using demo-user-id cookie: {cookie}")
-        return cookie.strip()
-    
-    # PRIORITA 3: JWT token z Authorization header (od UG přes Apollo Gateway)
+    # PRIORITA 2: JWT token z Authorization hlavičky
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()  # Remove "Bearer " prefix
-        # Dekóduj JWT a získej user_id
+        token = auth_header[7:].strip()
         try:
             import jwt
-            # Decode bez verifikace (jen pro demo/development)
             decoded = jwt.decode(token, options={"verify_signature": False})
             user_id = decoded.get("id") or decoded.get("sub") or decoded.get("user_id")
             if user_id:
-                print(f"DEBUG _pick_demo_user_id: Extracted user_id from JWT: {user_id}")
-                return str(user_id)
+                print(f"DEBUG: User ID from JWT: {user_id}")
+                return user_id
         except Exception as e:
             print(f"Warning: Could not decode JWT token: {e}")
     
-    # PRIORITA 4: Explicit environment variable
+    # PRIORITA 4: DEMO_USER_ID proměnná prostředí
     explicit = os.getenv("DEMO_USER_ID")
     if explicit:
-        print(f"DEBUG _pick_demo_user_id: Using DEMO_USER_ID env: {explicit}")
+        print(f"DEBUG: User ID from DEMO_USER_ID env var: {explicit}")
         return explicit.strip()
 
-    # FALLBACK: Default demo user (POUZE pokud není v produkci)
-    # V demo módu bez explicitní auth vrátíme None, ne admin!
-    if os.getenv("DEMO", "True").lower() == "true":
-        # Pro dev/testing bez auth - vrátíme None místo fallback na admina
-        print(f"DEBUG _pick_demo_user_id: No auth found, returning None (no fallback to admin)")
-        return None
-    
-    print(f"DEBUG _pick_demo_user_id: Using default: {DEMO_DEFAULT_USER_ID}")
-    return DEMO_DEFAULT_USER_ID
+    # FALLBACK (pouze v DEMO režimu): První administrátor ze systemdata.json
+    if os.getenv("DEMO", "False").lower() == "true":
+        print("DEBUG: No explicit user ID. Attempting fallback to first admin for GraphiQL.")
+        try:
+            import json
+            from pathlib import Path
+            data_path = Path(__file__).parent / "systemdata.combined.json"
+            if data_path.exists():
+                with open(data_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    admin_roletype_id = next((rt.get('id') for rt in data.get('roletypes', []) if rt.get('name') == 'administrátor'), None)
+                    if admin_roletype_id:
+                        for role in data.get('roles', []):
+                            if role.get('roletype_id') == admin_roletype_id and role.get('valid', True):
+                                admin_user_id = role.get('user_id')
+                                if admin_user_id:
+                                    print(f"DEBUG: Fallback to admin user ID: {admin_user_id}")
+                                    return admin_user_id
+            print("DEBUG: Fallback failed: No admin user found in systemdata.")
+            return None
+        except Exception as e:
+            print(f"Warning: Error during fallback admin search: {e}")
+            return None
+
+    # Pokud nic z výše uvedeného a nejsme v DEMO, není žádný uživatel.
+    print("DEBUG: No user ID found.")
+    return None
 
 
 async def get_context(request: Request):
@@ -177,35 +188,54 @@ async def get_context(request: Request):
     }
 
     def load_user_from_systemdata(user_id: str) -> dict:
-        """Helper to load user data from systemdata.combined.json"""
+        """Helper to load user data and roles from systemdata.combined.json"""
         try:
             import json
+            import datetime
             from pathlib import Path
             data_path = Path(__file__).parent / "systemdata.combined.json"
-            if data_path.exists():
-                with open(data_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    users = data.get('users', [])
-                    for user in users:
-                        if user.get('id') == user_id:
-                            return {
-                                "id": user_id,
-                                "email": user.get('email', ''),
-                                "name": user.get('name', ''),
-                                "surname": user.get('surname', '')
-                            }
+            if not data_path.exists():
+                return {"id": user_id, "roles": []}
+
+            with open(data_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+                user_data_list = [u for u in data.get('users', []) if u.get('id') == user_id]
+                user_data = user_data_list[0] if user_data_list else {'id': user_id}
+
+                # Find roles for the user
+                user_roles = []
+                roles = data.get('roles', [])
+                roletypes = data.get('roletypes', [])
+                roletype_map = {rt['id']: rt.get('name') for rt in roletypes}
+
+                now_iso = datetime.datetime.now().isoformat()
+
+                for role in roles:
+                    if role.get('user_id') == user_id and role.get('valid', True):
+                        start = role.get('startdate')
+                        end = role.get('enddate')
+                        # Check if the role is currently active
+                        if (not start or start <= now_iso) and (not end or end >= now_iso):
+                            roletype_id = role.get('roletype_id')
+                            role_name = roletype_map.get(roletype_id)
+                            if role_name:
+                                user_roles.append(role_name)
+                
+                user_data['roles'] = user_roles
+                return user_data
+
         except Exception as e:
             print(f"Warning: Could not load user data from systemdata: {e}")
-        return {"id": user_id}
+        return {"id": user_id, "roles": []}
 
-    # Získej user_id z různých zdrojů (header, cookie, JWT, ...)
-    demo_user_id = _pick_demo_user_id(request) if os.getenv("DEMO", "True").lower() == "true" else None
-    
-    if demo_user_id:
+    # Získej user_id pomocí centralizované logiky
+    user_id_to_load = _pick_demo_user_id(request)
+
+    if user_id_to_load:
         # Mapuj staré Docker ID na systemdata ID
-        systemdata_id = OLD_TO_SYSTEMDATA_ID.get(demo_user_id, demo_user_id)
-        print(f"DEBUG get_context: user_id={demo_user_id}, mapped={systemdata_id}")
-        
+        systemdata_id = OLD_TO_SYSTEMDATA_ID.get(user_id_to_load, user_id_to_load)
+        print(f"DEBUG get_context: user_id={user_id_to_load}, mapped={systemdata_id}")
         # Načti user data ze systemdata
         user_data = load_user_from_systemdata(systemdata_id)
         result["user"] = user_data
@@ -243,6 +273,10 @@ async def lifespan(app: FastAPI):
     # print("App shutdown, nothing to do")
 
 app = FastAPI(lifespan=lifespan)
+
+import httpx
+import json
+from typing import Optional
 
 graphql_app = GraphQLRouter(
     schema,
