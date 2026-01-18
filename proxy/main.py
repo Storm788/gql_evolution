@@ -44,9 +44,10 @@ async def run_server():
     app.router.add_route('*', '/{tail:.*}', handle_request)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, host="0.0.0.0", port=8001)
+    # Proxy should run on port 8000 to match Apollo Gateway configuration
+    site = web.TCPSite(runner, host="0.0.0.0", port=8000)
     await site.start()
-    print(f"Reverse proxy server started on http://0.0.0.0:8001 redirecting to {TARGET_SERVER}")
+    print(f"Reverse proxy server started on http://0.0.0.0:8000 redirecting to {TARGET_SERVER}")
     try:
         while True:
             await asyncio.sleep(3600)  # Keep the server running

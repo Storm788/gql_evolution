@@ -4,21 +4,14 @@ import asyncio
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException, Response, Form
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, FileResponse
 from strawberry.fastapi import GraphQLRouter
 
 import logging
 import logging.handlers
 
-# Load environment variables from .env file
-from dotenv import load_dotenv
-import os as _os_temp
-_env_path = _os_temp.path.join(_os_temp.path.dirname(__file__), '.env')
-print(f"DEBUG: Loading .env from: {_env_path}")
-load_dotenv(_env_path)
-print(f"DEBUG: After load_dotenv, DEMODATA={os.getenv('DEMODATA')}, DEMO={os.getenv('DEMO')}")
-del _os_temp
+# .env already loaded at the top of the file
 
 from src.GraphTypeDefinitions import schema
 from src.DBDefinitions import startEngine, ComposeConnectionString
@@ -105,151 +98,27 @@ async def RunOnceAndReturnSessionMaker():
 # endregion
 
 # region FastAPI setup
-DEMO_DEFAULT_USER_ID = os.getenv(
-    "DEMO_DEFAULT_USER_ID",
-    "76dac14f-7114-4bb2-882d-0d762eab6f4a",  # ESTERA_ID as fallback
-)
-
-
-def _pick_demo_user_id(request: Request) -> str | None:
-    """
-    Určuje ID uživatele pro kontext v demo režimu s několika úrovněmi priority.
-    """
-    
-    # PRIORITA 1: x-demo-user-id hlavička (pro manuální testování)
-    candidate = request.headers.get("x-demo-user-id")
-    if candidate:
-        print(f"DEBUG: User ID from 'x-demo-user-id' header: {candidate}")
-        return candidate.strip()
-
-    # PRIORITA 2: JWT token z Authorization hlavičky
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()
-        try:
-            import jwt
-            decoded = jwt.decode(token, options={"verify_signature": False})
-            user_id = decoded.get("id") or decoded.get("sub") or decoded.get("user_id")
-            if user_id:
-                print(f"DEBUG: User ID from JWT: {user_id}")
-                return user_id
-        except Exception as e:
-            print(f"Warning: Could not decode JWT token: {e}")
-    
-    # PRIORITA 4: DEMO_USER_ID proměnná prostředí
-    explicit = os.getenv("DEMO_USER_ID")
-    if explicit:
-        print(f"DEBUG: User ID from DEMO_USER_ID env var: {explicit}")
-        return explicit.strip()
-
-    # FALLBACK (pouze v DEMO režimu): První administrátor ze systemdata.json
-    if os.getenv("DEMO", "False").lower() == "true":
-        print("DEBUG: No explicit user ID. Attempting fallback to first admin for GraphiQL.")
-        try:
-            import json
-            from pathlib import Path
-            data_path = Path(__file__).parent / "systemdata.combined.json"
-            if data_path.exists():
-                with open(data_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    admin_roletype_id = next((rt.get('id') for rt in data.get('roletypes', []) if rt.get('name') == 'administrátor'), None)
-                    if admin_roletype_id:
-                        for role in data.get('roles', []):
-                            if role.get('roletype_id') == admin_roletype_id and role.get('valid', True):
-                                admin_user_id = role.get('user_id')
-                                if admin_user_id:
-                                    print(f"DEBUG: Fallback to admin user ID: {admin_user_id}")
-                                    return admin_user_id
-            print("DEBUG: Fallback failed: No admin user found in systemdata.")
-            return None
-        except Exception as e:
-            print(f"Warning: Error during fallback admin search: {e}")
-            return None
-
-    # Pokud nic z výše uvedeného a nejsme v DEMO, není žádný uživatel.
-    print("DEBUG: No user ID found.")
-    return None
-
-
 async def get_context(request: Request):
     asyncSessionMaker = await RunOnceAndReturnSessionMaker()
         
     from src.Dataloaders import createLoadersContext
+    from src.Utils.Dataloaders import _extract_demo_user_id, _load_user_from_systemdata
     context = createLoadersContext(asyncSessionMaker)
 
     result = {**context}
     result["request"] = request
-
-    # ID mapping z starých Docker IDs na systemdata IDs
-    OLD_TO_SYSTEMDATA_ID = {
-        '2d9dc5ca-a4a2-11ed-b9df-0242ac120003': '76dac14f-7114-4bb2-882d-0d762eab6f4a',  # Estera
-        'ccb397ad-0de7-46e7-bff0-42452f11dd5e': '678a2389-dd49-4d44-88be-28841ae34df1',  # Ornela
-        '27831740-f1cb-46ea-acdf-a4728029b0fb': '83981199-2134-4724-badf-cd1f0f38babf',  # Dalimil (jediný potřebuje mapování)
-    }
-
-    def load_user_from_systemdata(user_id: str) -> dict:
-        """Helper to load user data and roles from systemdata.combined.json"""
-        try:
-            import json
-            import datetime
-            from pathlib import Path
-            data_path = Path(__file__).parent / "systemdata.combined.json"
-            if not data_path.exists():
-                return {"id": user_id, "roles": []}
-
-            with open(data_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-                user_data_list = [u for u in data.get('users', []) if u.get('id') == user_id]
-                user_data = user_data_list[0] if user_data_list else {'id': user_id}
-
-                # Find roles for the user
-                user_roles = []
-                roles = data.get('roles', [])
-                roletypes = data.get('roletypes', [])
-                roletype_map = {rt['id']: rt.get('name') for rt in roletypes}
-
-                now_iso = datetime.datetime.now().isoformat()
-
-                for role in roles:
-                    if role.get('user_id') == user_id and role.get('valid', True):
-                        start = role.get('startdate')
-                        end = role.get('enddate')
-                        # Check if the role is currently active
-                        if (not start or start <= now_iso) and (not end or end >= now_iso):
-                            roletype_id = role.get('roletype_id')
-                            role_name = roletype_map.get(roletype_id)
-                            if role_name:
-                                user_roles.append(role_name)
-                
-                user_data['roles'] = user_roles
-                return user_data
-
-        except Exception as e:
-            print(f"Warning: Could not load user data from systemdata: {e}")
-        return {"id": user_id, "roles": []}
-
-    # Získej user_id pomocí centralizované logiky
-    user_id_to_load = _pick_demo_user_id(request)
-
-    if user_id_to_load:
-        # Mapuj staré Docker ID na systemdata ID
-        systemdata_id = OLD_TO_SYSTEMDATA_ID.get(user_id_to_load, user_id_to_load)
-        print(f"DEBUG get_context: user_id={user_id_to_load}, mapped={systemdata_id}")
-        # Načti user data ze systemdata
-        user_data = load_user_from_systemdata(systemdata_id)
-        result["user"] = user_data
-        result.setdefault("__original_user", user_data.copy())
-        print(f"DEBUG get_context: User loaded: email={user_data.get('email', 'N/A')}")
-    else:
-        # Není žádná autentizace - user je None
-        print(f"DEBUG get_context: No authentication found, user=None")
-        result["user"] = None
-
-    # V produkci vyžaduj autentizaci
-    if os.getenv("DEMO", "False").lower() != "true" and not result.get("user"):
-        raise HTTPException(status_code=401, detail="Authorization required")
-
+    
+    # Nastav uživatele z x-demo-user-id před tím, než WhoAmIExtension začne pracovat
+    # WhoAmIExtension pak může použít existujícího uživatele nebo ho přepsat, pokud má lepší data
+    demo_user_id = _extract_demo_user_id(request)
+    if demo_user_id:
+        user_data = _load_user_from_systemdata(demo_user_id)
+        if user_data:
+            result["user"] = user_data
+        else:
+            # Pokud nenajdeme uživatele v systemdata, použijeme alespoň ID
+            result["user"] = {"id": demo_user_id}
+    
     return result
 
 innerlifespan = None
@@ -274,13 +143,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-import httpx
-import json
-from typing import Optional
-
 graphql_app = GraphQLRouter(
     schema,
-    context_getter=get_context,
+    context_getter=get_context
 )
 
 from uoishelpers.schema import SessionCommitExtensionFactory
@@ -293,57 +158,28 @@ schema.extensions.append(
 app.include_router(graphql_app, prefix="/gql")
 
 @app.get("/graphiql", response_class=FileResponse)
-async def graphiql():
+async def graphiql_endpoint():
     realpath = os.path.realpath("./public/graphiql.html")
     return realpath
 
-@app.get("/whoami")
-async def whoami(request: Request):
-    """Return current user info or a simple 'No User' marker."""
-    try:
-        ctx = await get_context(request)
-        user = ctx.get("user")
-        if not user:
-            return JSONResponse({"user": None, "label": "No User"})
-        # compose a friendly label
-        name = user.get("name")
-        surname = user.get("surname")
-        fullname = (
-            f"{name} {surname}".strip()
-            if (name or surname)
-            else user.get("email") or str(user.get("id"))
-        )
-        return JSONResponse({
-            "user": {
-                "id": user.get("id"),
-                "email": user.get("email"),
-                "name": name,
-                "surname": surname
-            },
-            "label": fullname or "No User"
-        })
-    except Exception as e:
-        # In case of unexpected errors, default to No User
-        return JSONResponse({"user": None, "label": "No User", "error": str(e)})
-
 @app.get("/voyager", response_class=FileResponse)
 async def voyager():
-    realpath = os.path.realpath("./public/voyager.html")
+    realpath = os.path.realpath("./src/Htmls/voyager.html")
     return realpath
 
 @app.get("/doc", response_class=FileResponse)
 async def doc():
-    realpath = os.path.realpath("./public/liveschema.html")
+    realpath = os.path.realpath("./src/Htmls/liveschema.html")
     return realpath
 
 @app.get("/ui", response_class=FileResponse)
 async def ui():
-    realpath = os.path.realpath("./public/livedata.html")
+    realpath = os.path.realpath("./src/Htmls/livedata.html")
     return realpath
 
 @app.get("/test", response_class=FileResponse)
 async def test():
-    realpath = os.path.realpath("./public/tests.html")
+    realpath = os.path.realpath("./src/Htmls/tests.html")
     return realpath
 
 import prometheus_client
@@ -353,6 +189,55 @@ async def metrics():
         content=prometheus_client.generate_latest(), 
         media_type=prometheus_client.CONTENT_TYPE_LATEST
         )
+
+@app.get("/whoami")
+async def whoami(request: Request):
+    """Returns current user information from context, headers, or cookies.
+    Automatically reads from cookies set by frontend after login.
+    """
+    from src.Utils.Dataloaders import _extract_demo_user_id, _extract_authorization_token, _load_user_from_systemdata
+    
+    # Try to get user from x-demo-user-id header or cookie
+    demo_user_id = _extract_demo_user_id(request)
+    
+    # If we got a JWT token (starts with 'eyJ' or 'Bearer'), WhoAmIExtension will handle it
+    # For now, just return the token ID
+    if demo_user_id and (demo_user_id.startswith('eyJ') or demo_user_id.startswith('Bearer')):
+        # It's a JWT token - WhoAmIExtension will process it in GraphQL context
+        # For /whoami endpoint, we can't decode JWT here easily, so return basic info
+        return JSONResponse({
+            "id": "authenticated",
+            "label": "Přihlášený uživatel (JWT)"
+        })
+    
+    if demo_user_id:
+        user_data = _load_user_from_systemdata(demo_user_id)
+        if user_data:
+            return JSONResponse({
+                "id": user_data.get("id"),
+                "email": user_data.get("email"),
+                "name": user_data.get("name"),
+                "surname": user_data.get("surname"),
+                "label": f"{user_data.get('name', '')} {user_data.get('surname', '')}".strip() or user_data.get('email', 'Unknown')
+            })
+        else:
+            return JSONResponse({
+                "id": demo_user_id,
+                "label": f"User {demo_user_id}"
+            })
+    
+    # Try Authorization token as fallback
+    auth_token = _extract_authorization_token(request)
+    if auth_token:
+        return JSONResponse({
+            "id": "authenticated",
+            "label": "Přihlášený uživatel (Token)"
+        })
+    
+    return JSONResponse({
+        "id": None,
+        "label": "Bez uživatele"
+    })
 
 
 logging.info("All initialization is done")
@@ -370,12 +255,36 @@ logging.info("All initialization is done")
 
 # region ENV setup tests
 def envAssertDefined(name, default=None):
-    result = os.getenv(name, default)
-    assert result is not None, f"{name} environment variable must be explicitly defined"
+    result = os.getenv(name, None)
+    # Try to strip whitespace if result exists
+    if result:
+        result = result.strip()
+    if result is None or result == "":
+        # Debug: print all env vars that start with DEMO or GQL
+        print(f"\nDEBUG: Environment variable '{name}' is not set or empty")
+        print(f"DEBUG: All env vars starting with 'DEMO' or 'GQL':")
+        for key, value in os.environ.items():
+            if 'DEMO' in key.upper() or 'GQL' in key.upper():
+                print(f"  {key}={value}")
+        # Also try to reload .env file
+        try:
+            from dotenv import load_dotenv
+            from pathlib import Path
+            env_path = Path(__file__).parent / '.env'
+            if env_path.exists():
+                print(f"DEBUG: Attempting to reload .env from {env_path}")
+                load_dotenv(dotenv_path=env_path, override=True)
+                result = os.getenv(name, None)
+                if result:
+                    result = result.strip()
+                    print(f"DEBUG: After reload, {name}={result}")
+        except Exception as e:
+            print(f"DEBUG: Could not reload .env: {e}")
+    assert result is not None and result != "", f"{name} environment variable must be explicitly defined"
     return result
 
-DEMO = envAssertDefined("DEMO", "False")
-GQLUG_ENDPOINT_URL = envAssertDefined("GQLUG_ENDPOINT_URL", "http://localhost:8000/gql")
+DEMO = envAssertDefined("DEMO", None)
+GQLUG_ENDPOINT_URL = envAssertDefined("GQLUG_ENDPOINT_URL", None)
 
 assert (DEMO in ["True", "true", "False", "false"]), "DEMO environment variable can have only `True` or `False` values"
 DEMO = DEMO in ["True", "true"]

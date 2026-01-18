@@ -34,43 +34,73 @@
     ></script>
     <script>
 
-        // Helper to get x-demo-user-id from localStorage or cookie
-        function getDemoUserId() {
-          // Try localStorage
+        // Helper to get user ID from various sources (cookie, localStorage, JWT token)
+        function getUserId() {
+          // 1. Try demo-user-id cookie (nastavený frontendem po přihlášení)
+          const demoMatch = document.cookie.match(/(?:^|; )demo-user-id=([^;]*)/);
+          if (demoMatch) return decodeURIComponent(demoMatch[1]);
+          
+          // 2. Try authorization cookie (JWT token z frontendu)
+          const authMatch = document.cookie.match(/(?:^|; )authorization=([^;]*)/);
+          if (authMatch) {
+            const token = decodeURIComponent(authMatch[1]);
+            // Pokud je to JWT token, zkus extrahovat user ID (pokud je v payload)
+            // Prozatím použijeme token jako ID, WhoAmIExtension ho zpracuje
+            return token;
+          }
+          
+          // 3. Try localStorage (fallback pro manuální nastavení)
           let id = window.localStorage && window.localStorage.getItem('x-demo-user-id');
           if (id) return id;
-          // Try cookie
-          const match = document.cookie.match(/(?:^|; )demo-user-id=([^;]*)/);
-          if (match) return decodeURIComponent(match[1]);
+          
           return '';
         }
 
-        // Custom fetcher that always sends x-demo-user-id header
+        // Custom fetcher that automatically sends cookies and user identification
         const fetcher = (graphQLParams, opts = {}) => {
-          const demoUserId = getDemoUserId();
-          const headers = Object.assign({}, opts.headers || {}, {
-            'x-demo-user-id': demoUserId || ''
-          });
-          return fetch('/graphql', {
+          const userId = getUserId();
+          const headers = Object.assign({}, opts.headers || {}, {});
+          
+          // Pokud máme user ID, přidej ho jako header (pro demo režim)
+          if (userId && !userId.startsWith('Bearer ') && !userId.startsWith('eyJ')) {
+            // Pokud to není JWT token, přidej jako x-demo-user-id
+            headers['x-demo-user-id'] = userId;
+          } else if (userId && (userId.startsWith('Bearer ') || userId.startsWith('eyJ'))) {
+            // Pokud je to JWT token, přidej jako Authorization header
+            headers['Authorization'] = userId.startsWith('Bearer ') ? userId : `Bearer ${userId}`;
+          }
+          
+          return fetch('/gql', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...headers
             },
+            credentials: 'include', // DŮLEŽITÉ: posílá cookies automaticky
             body: JSON.stringify(graphQLParams),
           });
         };
 
-        // Load current user label
-        fetch('/whoami')
-          .then(r => r.json())
-          .then(data => {
-            const label = (data && data.label) ? data.label : 'Bez uživatele';
-            document.getElementById('userlabel').textContent = `Uživatel: ${label}`;
+        // Load current user label (s cookies)
+        function updateUserLabel() {
+          fetch('/whoami', {
+            credentials: 'include' // Posílá cookies automaticky
           })
-          .catch(() => {
-            document.getElementById('userlabel').textContent = 'Uživatel: Bez uživatele';
-          });
+            .then(r => r.json())
+            .then(data => {
+              const label = (data && data.label) ? data.label : 'Bez uživatele';
+              document.getElementById('userlabel').textContent = `Uživatel: ${label}`;
+            })
+            .catch(() => {
+              document.getElementById('userlabel').textContent = 'Uživatel: Bez uživatele';
+            });
+        }
+        
+        // Načti uživatele při načtení stránky
+        updateUserLabel();
+        
+        // Aktualizuj každých 5 sekund (pro případ, že se uživatel přihlásí v jiném okně)
+        setInterval(updateUserLabel, 5000);
         
         ReactDOM.render(
             React.createElement(GraphiQL, {

@@ -14,11 +14,11 @@ sqlalchemy_utils
 
 pydantic
 starlette
-strawberry-graphql
+strawberry-graphql==0.284.1
 aiodataloader
 pyjwt[crypto]
-python-dotenv
 
 pyinstrument
 prometheus_client
+python-dotenv
 https://github.com/hrbolek/uoishelpers/archive/refs/heads/main.zip

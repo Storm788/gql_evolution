@@ -5,23 +5,6 @@ import json
 from pathlib import Path
 
 from uoishelpers.gqlpermissions import OnlyForAuthentized
-
-# Patch OnlyForAuthentized for debug: monkey-patch has_permission to print user context
-try:
-    orig_has_permission = OnlyForAuthentized.has_permission
-    async def debug_has_permission(self, source, info, **kwargs):
-        import sys
-        user = None
-        try:
-            from src.GraphTypeDefinitions.context_utils import ensure_user_in_context
-            user = ensure_user_in_context(info)
-        except Exception as e:
-            print(f"[DEBUG] OnlyForAuthentized: could not get user: {e}", flush=True)
-        print(f"[DEBUG] OnlyForAuthentized: user={user}", flush=True)
-        return await orig_has_permission(self, source, info, **kwargs)
-    OnlyForAuthentized.has_permission = debug_has_permission
-except Exception as e:
-    print(f"[DEBUG] OnlyForAuthentized monkey-patch failed: {e}", flush=True)
 from uoishelpers.resolvers import (
     getLoadersFromInfo,
     createInputs2,
@@ -47,6 +30,7 @@ UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".UserGQLModel")
 # Cache uživatelských dat pro rychlý přístup k emailům a jménům
 _USER_CACHE = {}
 _USER_EMAIL_CACHE = {}  # Mapování email -> user data
+_CACHE_LOADED = False
 
 # Mapování UG ID (z Docker databáze) na systemdata ID
 _UG_TO_SYSTEMDATA_ID = {
@@ -57,11 +41,10 @@ _UG_TO_SYSTEMDATA_ID = {
 
 def _load_user_cache():
     """Načte uživatelská data ze systemdata.combined.json a vytvoří mapování pro UG ID"""
-    global _USER_CACHE, _USER_EMAIL_CACHE
+    global _USER_CACHE, _USER_EMAIL_CACHE, _CACHE_LOADED
     
-    # Vždycky reload - ne jen jednou
-    _USER_CACHE.clear()
-    _USER_EMAIL_CACHE.clear()
+    if _CACHE_LOADED:
+        return
     
     try:
         data_path = Path(__file__).parent.parent.parent / "systemdata.combined.json"
@@ -88,13 +71,13 @@ def _load_user_cache():
                     email_data = _USER_EMAIL_CACHE.get(email.lower())
                     if email_data:
                         _USER_CACHE[ug_id] = email_data
+        _CACHE_LOADED = True
     except Exception as e:
-        print(f"Error loading user cache: {e}")
+        pass
 
 # Cache se bude loadovat on-demand v resolverech (ne při importu)
 
 
-# @createInputs2  # Commented out to avoid Apollo Gateway syntax errors with multiline descriptions
 @strawberry.input
 class AssetLoanInputFilter:
     id: typing.Optional[IDType] = None
@@ -111,7 +94,7 @@ Used for managing asset circulation, tracking returns, and ensuring accountabili
 class AssetLoanGQLModel(BaseGQLModel):
     @classmethod
     def getLoader(cls, info: strawberry.types.Info):
-        return getLoadersFromInfo(info).AssetLoanModel
+        return getLoadersFromInfo(info)["AssetLoanModel"]
 
     asset_id: typing.Optional[IDType] = strawberry.field(
         name="assetId",
@@ -148,7 +131,7 @@ class AssetLoanGQLModel(BaseGQLModel):
         """Vrátí email uživatele z UG ID cache"""
         if self.borrower_user_id is None:
             return None
-        _load_user_cache()  # Vždy se ujisti, že cache je aktuální
+        _load_user_cache()
         user_id_str = str(self.borrower_user_id)
         user_data = _USER_CACHE.get(user_id_str)
         return user_data.get('email') if user_data else None
@@ -158,7 +141,7 @@ class AssetLoanGQLModel(BaseGQLModel):
         """Vrátí celé jméno uživatele z UG ID cache"""
         if self.borrower_user_id is None:
             return None
-        _load_user_cache()  # Vždy se ujisti, že cache je aktuální
+        _load_user_cache()
         user_data = _USER_CACHE.get(str(self.borrower_user_id))
         return user_data.get('fullname') if user_data else None
 
@@ -169,7 +152,7 @@ class AssetLoanQuery:
         description="Get loan by id", permission_classes=[OnlyForAuthentized]
     )
     async def asset_loan_by_id(self, info: strawberry.types.Info, id: IDType) -> typing.Optional["AssetLoanGQLModel"]:
-        loader = getLoadersFromInfo(info).AssetLoanModel
+        loader = getLoadersFromInfo(info)["AssetLoanModel"]
         row = await loader.load(id)
         if row is None:
             return None
@@ -202,36 +185,40 @@ class AssetLoanQuery:
         uid = str(user.get("id"))
         user_email = user.get("email", "")
         is_admin = await user_has_role(user, "administrátor", info)
-        print(f"DEBUG asset_loan_page: User ID: {uid}, Email: {user_email}, Is Admin: {is_admin}")
-        loader = getLoadersFromInfo(info).AssetLoanModel
+        loader = getLoadersFromInfo(info)["AssetLoanModel"]
 
-        # Pokud je where filtr s borrowerUserId, použij filter_by
-        if where is not None and where.borrower_user_id is not None:
-            # Filtr konkrétního uživatele
-            target_user_id = where.borrower_user_id
-            print(f"DEBUG: Filtruje se podle borrower_user_id={target_user_id}")
-            rows = await loader.filter_by(borrower_user_id=target_user_id)
-            # Aplikuj skip/limit manuálně
-            rows = list(rows)[skip:skip+limit] if skip or limit else rows
-            return [AssetLoanGQLModel.from_dataclass(row) for row in rows]
-        
-        # Pro ne-admina bez where: jen své půjčky
+        # Pro ne-admina: vždy jen své půjčky (i když je where filtr s jiným borrowerUserId)
         if not is_admin:
-            print(f"DEBUG: Non-admin - filtruje se podle borrower_user_id={uid}")
+            # Pokud je where filtr s borrowerUserId, zkontroluj, že je to stejný uživatel
+            if where is not None and where.borrower_user_id is not None:
+                target_user_id = str(where.borrower_user_id)
+                if target_user_id != uid:
+                    # Viewer se pokouší vidět cizí půjčky - odmítneme
+                    return []
             try:
                 # Konvertuj uid string na UUID
                 user_uuid = IDType(uid)
-                rows = await loader.filter_by(borrower_user_id=user_uuid)
+                # Použij where filtr, pokud je borrowerUserId stejný jako aktuální uživatel
+                if where is not None and where.borrower_user_id is not None:
+                    rows = await loader.filter_by(borrower_user_id=user_uuid)
+                else:
+                    rows = await loader.filter_by(borrower_user_id=user_uuid)
                 rows_list = list(rows)
-                print(f"DEBUG: Nalezeno {len(rows_list)} půjček pro uživatele {uid}")
                 rows_list = rows_list[skip:skip+limit] if skip or limit else rows_list
                 return [AssetLoanGQLModel.from_dataclass(row) for row in rows_list]
             except Exception as e:
-                print(f"ERROR filtering by user_id {uid}: {e}")
                 return []
         
+        # Admin: může vidět všechno, včetně where filtru
+        # Pokud je where filtr s borrowerUserId, použij filter_by
+        if where is not None and where.borrower_user_id is not None:
+            target_user_id = where.borrower_user_id
+            rows = await loader.filter_by(borrower_user_id=target_user_id)
+            rows_list = list(rows)
+            rows_list = rows_list[skip:skip+limit] if skip or limit else rows_list
+            return [AssetLoanGQLModel.from_dataclass(row) for row in rows_list]
+        
         # Admin bez where filtru: všechny půjčky přes page
-        print(f"DEBUG: Admin - vracím všechny půjčky")
         results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=None)
         return [AssetLoanGQLModel.from_dataclass(row) for row in results]
 
@@ -280,17 +267,6 @@ class AssetLoanDeleteGQLModel:
 class AssetLoanMutation:
     @strawberry.field(name="assetLoanInsert", description="Insert loan", permission_classes=[OnlyForAuthentized])
     async def asset_loan_insert(self, info: strawberry.types.Info, loan: AssetLoanInsertGQLModel) -> typing.Union[AssetLoanGQLModel, InsertError[AssetLoanGQLModel]]:
-        import os
-        project_root = os.path.dirname(os.path.abspath(__file__))
-        log_path = os.path.join(project_root, '../../assetloan.log')
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write("resolver called\n")
-        except Exception as e:
-            pass
-        import logging
-        logging.error("DEBUG assetLoanInsert: resolver called")
-        print("[DEBUG] assetLoanInsert: resolver called", flush=True)
         user = ensure_user_in_context(info)
         if user is None:
             error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
@@ -302,34 +278,22 @@ class AssetLoanMutation:
             )
 
         # Pouze admin (role) může přidávat půjčky
-
-        import logging
-
-        logging.info("--- RBAC Check for asset_loan_insert ---")
-        logging.info(f"User from context: {user}")
-
         if not user or not user.get("id"):
-            logging.warning("Permission denied: No valid user in context.")
             error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d") # Unauthorized
             return InsertError[AssetLoanGQLModel](
                 msg="Permission denied: User is not authenticated.",
                 code=error_code
             )
 
-        logging.info(f"Checking for 'administrátor' role for user_id: {user.get('id')}")
         has_admin_role = await user_has_role(user, "administrátor", info)
-        logging.info(f"Role check result: has_admin_role = {has_admin_role}")
-
+        
         if not has_admin_role:
-            logging.warning(f"Permission denied: User {user.get('id')} does not have 'administrátor' role.")
             error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5d") # Forbidden
             return InsertError[AssetLoanGQLModel](
                 msg="Permission denied: 'administrator' role required.",
                 code=error_code
             )
         
-        logging.info("--- RBAC Check Passed ---")
-
         result = await Insert[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
         return result
 
@@ -359,7 +323,7 @@ class AssetLoanMutation:
         return result
 
     @strawberry.field(description="Delete loan", permission_classes=[OnlyForAuthentized])
-    async def asset_loan_delete(self, info: strawberry.types.Info, loan: AssetLoanDeleteGQLModel) -> typing.Union[AssetLoanGQLModel, DeleteError[AssetLoanGQLModel]]:
+    async def asset_loan_delete(self, info: strawberry.types.Info, loan: AssetLoanDeleteGQLModel) -> typing.Optional[DeleteError[AssetLoanGQLModel]]:
         user = ensure_user_in_context(info)
         if user is None:
             error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
@@ -380,7 +344,4 @@ class AssetLoanMutation:
                 _input=loan
             )
         
-        result = await Delete[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
-        if result is None:
-            return AssetLoanGQLModel(id=loan.id)
-        return result
+        return await Delete[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)

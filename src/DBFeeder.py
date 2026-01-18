@@ -17,7 +17,7 @@ from src.DBDefinitions import (
 PathInput = Union[str, os.PathLike]
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_DATA_PATH = PROJECT_ROOT / "systemdata.combined.json"
+DEFAULT_DATA_PATH = PROJECT_ROOT / "systemdata.json"
 DEFAULT_BACKUP_PATH = PROJECT_ROOT / "systemdata.backup.json"
 
 
@@ -66,109 +66,26 @@ def _normalize_dataset_shapes(data: dict) -> dict:
     return data
 
 
-def get_demodata(filename: PathInput = DEFAULT_DATA_PATH):
-    data_path = Path(filename)
-    data = readJsonFile(jsonFileName=str(data_path))
+def get_demodata():
+    data = readJsonFile(jsonFileName=str(DEFAULT_DATA_PATH))
     return _normalize_dataset_shapes(data)
 
 
-async def initDB(asyncSessionMaker, filename: PathInput = DEFAULT_DATA_PATH):
+async def initDB(asyncSessionMaker):
 
     dbModels = [
+        EventModel,
+        EventInvitationModel,
+        AssetModel,
+        AssetInventoryRecordModel,
+        AssetLoanModel,
     ]
 
-    demodata_value = os.environ.get("DEMODATA", None)
-    print(f"DEBUG DBFeeder: DEMODATA={repr(demodata_value)}, type={type(demodata_value)}", flush=True)
-    isDemo = demodata_value in ["True", "true", True]
-    print(f"DEBUG DBFeeder: isDemo={isDemo}", flush=True)
+    isDemo = os.environ.get("DEMODATA", None) in ["True", "true", True]
     if isDemo:
-        print("Demo mode", flush=True)
-        dbModels = [
-            EventModel,
-            EventInvitationModel,
-            AssetModel,
-            AssetInventoryRecordModel,
-            AssetLoanModel,
-        ]
+        jsonData = get_demodata()
+        await ImportModels(asyncSessionMaker, dbModels, jsonData)
 
-
-    jsonData = get_demodata(filename)
-    
-    # Debug: vypíšeme, jaké klíče a kolik záznamů máme
-    print(f"DEBUG: Loading data from {filename}", flush=True)
-    print(f"DEBUG: JSON keys: {list(jsonData.keys())[:10]}", flush=True)
-    if "assets_evolution" in jsonData:
-        print(f"DEBUG: assets_evolution has {len(jsonData['assets_evolution'])} records", flush=True)
-    
-    # Nejprve zkusíme standardní import
-    await ImportModels(asyncSessionMaker, dbModels, jsonData)
-    
-    # Pak přidáme manuální import pro asset data, pokud standardní nefunguje - POUZE v demo módu
-    if isDemo:
-        async with asyncSessionMaker() as session:
-            from sqlalchemy import select
-            
-            # Import assets
-            if "assets_evolution" in jsonData:
-                assets = jsonData["assets_evolution"]
-                print(f"DEBUG: Manually inserting {len(assets)} assets", flush=True)
-                for asset_data in assets:
-                    # Filtruj metadata pole začínající podtržítkem
-                    clean_data = {k: v for k, v in asset_data.items() if not k.startswith('_')}
-                    asset_id = clean_data.get('id')
-                    
-                    # Zkontroluj, jestli asset už neexistuje
-                    existing = await session.execute(
-                        select(AssetModel).where(AssetModel.id == asset_id)
-                    )
-                    if existing.scalar_one_or_none() is None:
-                        asset = AssetModel(**clean_data)
-                        session.add(asset)
-                
-                await session.commit()
-                print(f"DEBUG: Assets inserted", flush=True)
-            
-            # Import asset loans
-            if "asset_loans_evolution" in jsonData:
-                loans = jsonData["asset_loans_evolution"]
-                print(f"DEBUG: Manually inserting {len(loans)} loans", flush=True)
-                for loan_data in loans:
-                    # Filtruj metadata pole začínající podtržítkem
-                    clean_data = {k: v for k, v in loan_data.items() if not k.startswith('_')}
-                    loan_id = clean_data.get('id')
-                    
-                    # Zkontroluj, jestli loan už neexistuje
-                    existing = await session.execute(
-                        select(AssetLoanModel).where(AssetLoanModel.id == loan_id)
-                    )
-                    if existing.scalar_one_or_none() is None:
-                        loan = AssetLoanModel(**clean_data)
-                        session.add(loan)
-                
-                await session.commit()
-                print(f"DEBUG: Loans inserted", flush=True)
-            
-            # Import asset inventory records
-            if "asset_inventory_records_evolution" in jsonData:
-                records = jsonData["asset_inventory_records_evolution"]
-                print(f"DEBUG: Manually inserting {len(records)} inventory records", flush=True)
-                for record_data in records:
-                    # Filtruj metadata pole začínající podtržítkem
-                    clean_data = {k: v for k, v in record_data.items() if not k.startswith('_')}
-                    record_id = clean_data.get('id')
-                    
-                    # Zkontroluj, jestli record už neexistuje
-                    existing = await session.execute(
-                        select(AssetInventoryRecordModel).where(AssetInventoryRecordModel.id == record_id)
-                    )
-                    if existing.scalar_one_or_none() is None:
-                        record = AssetInventoryRecordModel(**clean_data)
-                        session.add(record)
-                
-                await session.commit()
-                print(f"DEBUG: Inventory records inserted", flush=True)
-
-    print("Data initialized", flush=True)
 
 
 async def backupDB(asyncSessionMaker, filename: PathInput = DEFAULT_BACKUP_PATH):
@@ -228,7 +145,7 @@ async def backupDB(asyncSessionMaker, filename: PathInput = DEFAULT_BACKUP_PATH)
             data.append({
                 model.__tablename__: list(rowsdict.values())
             })
-        with open(Path(filename), "w", encoding="utf-8") as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False, default=str)
 
     print("backup done", flush=True)

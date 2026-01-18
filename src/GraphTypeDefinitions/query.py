@@ -26,13 +26,21 @@ class Query(EventQuery, EventInvitationQuery, AssetQuery, AssetInventoryRecordQu
 
     @strawberry.field(description="Returns current authenticated user full info")
     async def who_am_i(self, info: strawberry.types.Info) -> typing.Optional[strawberry.scalars.JSON]:
-        """Returns JSON with current user id, email, name, surname or null if not authenticated"""
+        """Returns JSON with current user id, email, name, surname, roles or null if not authenticated"""
         user = ensure_user_in_context(info)
         if user is None:
             return None
-        return {
+        
+        result = {
             "id": str(user.get("id", "")),
             "email": user.get("email", ""),
             "name": user.get("name", ""),
             "surname": user.get("surname", "")
         }
+        
+        # Přidej role, pokud jsou v kontextu
+        roles = user.get("roles")
+        if roles:
+            result["roles"] = roles
+        
+        return result

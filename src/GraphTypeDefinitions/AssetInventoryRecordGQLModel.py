@@ -26,7 +26,6 @@ AssetGQLModel = typing.Annotated["AssetGQLModel", strawberry.lazy(".AssetGQLMode
 UserGQLModel = typing.Annotated["UserGQLModel", strawberry.lazy(".UserGQLModel")]
 
 
-# @createInputs2  # Commented out to avoid Apollo Gateway syntax errors with multiline descriptions
 @strawberry.input
 class AssetInventoryRecordInputFilter:
     id: typing.Optional[IDType] = None
@@ -44,7 +43,7 @@ Supports audit trails and inventory reconciliation processes.""")
 class AssetInventoryRecordGQLModel(BaseGQLModel):
     @classmethod
     def getLoader(cls, info: strawberry.types.Info):
-        return getLoadersFromInfo(info).AssetInventoryRecordModel
+        return getLoadersFromInfo(info)["AssetInventoryRecordModel"]
 
     asset_id: typing.Optional[IDType] = strawberry.field(
         description="Asset id",
@@ -84,7 +83,7 @@ class AssetInventoryRecordQuery:
         self, info: strawberry.types.Info, id: IDType
     ) -> typing.Optional[AssetInventoryRecordGQLModel]:
         """Admin vidí všechno; běžný uživatel jen záznamy pro své assety"""
-        loader = getLoadersFromInfo(info).AssetInventoryRecordModel
+        loader = getLoadersFromInfo(info)["AssetInventoryRecordModel"]
         record = await loader.load(id)
         if record is None:
             return None
@@ -98,7 +97,7 @@ class AssetInventoryRecordQuery:
             return AssetInventoryRecordGQLModel.from_dataclass(record)
         
         # Běžný uživatel - musíme zkontrolovat, zda je custodian assetu
-        asset_loader = getLoadersFromInfo(info).AssetModel
+        asset_loader = getLoadersFromInfo(info)["AssetModel"]
         asset = await asset_loader.load(record.asset_id)
         if asset and str(asset.custodian_user_id) == str(user.get("id")):
             return AssetInventoryRecordGQLModel.from_dataclass(record)
@@ -122,27 +121,24 @@ class AssetInventoryRecordQuery:
         if user is None:
             return []
         
-        loader = getLoadersFromInfo(info).AssetInventoryRecordModel
+        loader = getLoadersFromInfo(info)["AssetInventoryRecordModel"]
         
         # Admin vidí všechno
         if await user_has_role(user, "administrátor", info):
-            print(f"DEBUG inventory_record_page: Admin - vracím všechny záznamy")
             results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
             return [AssetInventoryRecordGQLModel.from_dataclass(row) for row in results]
         
         # Běžný uživatel - najdeme jeho assety a pak inventory records pro tyto assety
         uid = str(user.get("id"))
-        print(f"DEBUG inventory_record_page: Non-admin user {uid}")
         
         try:
             user_uuid = IDType(uid)
             # Najdi assety, kde je uživatel custodian
-            asset_loader = getLoadersFromInfo(info).AssetModel
+            asset_loader = getLoadersFromInfo(info)["AssetModel"]
             user_assets = await asset_loader.filter_by(custodian_user_id=user_uuid)
             asset_ids = [asset.id for asset in user_assets]
             
             if not asset_ids:
-                print(f"DEBUG: Uživatel nemá žádné assety")
                 return []
             
             # Najdi inventory records pro tyto assety
@@ -151,11 +147,9 @@ class AssetInventoryRecordQuery:
                 records = await loader.filter_by(asset_id=asset_id)
                 all_records.extend(records)
             
-            print(f"DEBUG: Nalezeno {len(all_records)} inventory records")
             all_records = list(all_records)[skip:skip+limit] if skip or limit else all_records
             return [AssetInventoryRecordGQLModel.from_dataclass(row) for row in all_records]
         except Exception as e:
-            print(f"ERROR filtering inventory records: {e}")
             return []
 
 
@@ -246,7 +240,7 @@ class AssetInventoryRecordMutation:
         return result
 
     @strawberry.field(description="Delete inventory record", permission_classes=[OnlyForAuthentized])
-    async def asset_inventory_record_delete(self, info: strawberry.types.Info, record: AssetInventoryRecordDeleteGQLModel) -> typing.Union[AssetInventoryRecordGQLModel, DeleteError[AssetInventoryRecordGQLModel]]:
+    async def asset_inventory_record_delete(self, info: strawberry.types.Info, record: AssetInventoryRecordDeleteGQLModel) -> typing.Optional[DeleteError[AssetInventoryRecordGQLModel]]:
         user = ensure_user_in_context(info)
         if user is None:
             error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
@@ -266,7 +260,4 @@ class AssetInventoryRecordMutation:
                 _input=record
             )
         
-        result = await Delete[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)
-        if result is None:
-            return AssetInventoryRecordGQLModel(id=record.id)
-        return result
+        return await Delete[AssetInventoryRecordGQLModel].DoItSafeWay(info=info, entity=record)

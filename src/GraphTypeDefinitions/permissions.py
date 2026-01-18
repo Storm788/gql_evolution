@@ -35,11 +35,53 @@ ROLE_NAME_TO_ID = {
 # ==================== Helper funkce ====================
 
 async def get_user_roles_from_db(user_id: UUID, info: strawberry.types.Info) -> Set[UUID]:
-    print(f"[DEBUG] get_user_roles_from_db called for user_id: {user_id}")
     """
-    Načte všechny aktivní role uživatele z databáze (tabulka roles).
+    Načte všechny aktivní role uživatele z databáze (tabulka roles) nebo z kontextu.
     Vrací set UUID roletype_id.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    from .context_utils import ensure_user_in_context
+    
+    # Nejdřív zkus načíst role z kontextu uživatele (z WhoAmIExtension nebo z federovaného UserGQLModel)
+    user = ensure_user_in_context(info)
+    logger.debug(f"get_user_roles_from_db: user from context: {user}")
+    
+    if user:
+        # Zkontroluj, zda má uživatel role v kontextu (z WhoAmIExtension nebo z GraphQL query)
+        user_roles = user.get("roles")
+        logger.debug(f"get_user_roles_from_db: user_roles from context: {user_roles}")
+        
+        if user_roles:
+            role_ids = set()
+            for role in user_roles:
+                # Role může být dict s "roletype" nebo přímo roletype_id
+                if isinstance(role, dict):
+                    roletype = role.get("roletype")
+                    logger.debug(f"get_user_roles_from_db: processing role={role}, roletype={roletype}")
+                    if roletype:
+                        roletype_id = roletype.get("id") if isinstance(roletype, dict) else roletype
+                        if roletype_id:
+                            try:
+                                role_ids.add(UUID(str(roletype_id)))
+                                logger.debug(f"get_user_roles_from_db: added roletype_id={roletype_id} from roletype")
+                            except (ValueError, TypeError) as e:
+                                logger.debug(f"get_user_roles_from_db: error converting roletype_id to UUID: {e}")
+                    # Alternativně může být roletype_id přímo v role
+                    roletype_id = role.get("roletype_id")
+                    if roletype_id:
+                        try:
+                            role_ids.add(UUID(str(roletype_id)))
+                            logger.debug(f"get_user_roles_from_db: added roletype_id={roletype_id} from role")
+                        except (ValueError, TypeError) as e:
+                            logger.debug(f"get_user_roles_from_db: error converting roletype_id to UUID: {e}")
+            if role_ids:
+                logger.info(f"get_user_roles_from_db: found {len(role_ids)} roles in context: {role_ids}")
+                return role_ids
+    
+    # Pokud nejsou role v kontextu, zkus načíst z databáze
+    logger.debug(f"get_user_roles_from_db: roles not in context, loading from DB for user_id={user_id}")
     from uoishelpers.resolvers import getLoadersFromInfo
     
     try:
@@ -58,16 +100,18 @@ async def get_user_roles_from_db(user_id: UUID, info: strawberry.types.Info) -> 
             result = await session.execute(query, {"user_id": str(user_id)})
             role_ids = {UUID(row[0]) for row in result.fetchall()}
             if role_ids:
+                logger.info(f"get_user_roles_from_db: found {len(role_ids)} roles in DB: {role_ids}")
                 return role_ids
+            else:
+                logger.debug(f"get_user_roles_from_db: no roles found in DB for user_id={user_id}")
     except Exception as e:
-        import sys
-        print(f"Warning: Could not load user roles from DB: {e}", flush=True)
+        logger.warning(f"get_user_roles_from_db: error loading roles from DB: {e}", exc_info=True)
 
     # Pokud nejsou role v DB, zkus načíst ze systemdata.combined.json
     try:
         import json
         from pathlib import Path
-        data_path = Path(__file__).parent.parent.parent / "systemdata.combined.json"
+        data_path = Path(__file__).parent.parent.parent / "systemdata.json"
         if data_path.exists():
             with open(data_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -87,20 +131,22 @@ async def get_user_roles_from_db(user_id: UUID, info: strawberry.types.Info) -> 
                 if user_roles:
                     return user_roles
     except Exception as e:
-        import sys
-        print(f"Warning: Could not load user roles from systemdata.combined.json: {e}", flush=True)
+        pass # Or log properly
     return set()
 
 
 async def user_has_role(user, role_name: str, info: strawberry.types.Info) -> bool:
     """Zkontroluje, zda má uživatel danou roli."""
-    import sys
-    print(f"[DEBUG] user_has_role called for user: {user}, looking for role: '{role_name}'", flush=True)
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if not user:
+        logger.debug(f"user_has_role: user is None")
         return False
     
     user_id = user.get("id")
     if not user_id:
+        logger.debug(f"user_has_role: user_id is None, user={user}")
         return False
         
     if isinstance(user_id, str):
@@ -110,21 +156,50 @@ async def user_has_role(user, role_name: str, info: strawberry.types.Info) -> bo
     role_name_lower = role_name.lower()
     required_role_id = ROLE_NAME_TO_ID.get(role_name_lower)
     
+    logger.debug(f"user_has_role: checking role '{role_name}' (lower: '{role_name_lower}') -> required_role_id={required_role_id}")
+    
     if not required_role_id:
-        print(f"Warning: Unknown role name '{role_name}' used in permission check.", flush=True)
+        logger.debug(f"user_has_role: role name '{role_name}' not found in ROLE_NAME_TO_ID")
         return False
 
-    # 2. Načte všechny ID rolí, které má uživatel
-    user_role_ids = await get_user_roles_from_db(user_id, info)
-    print(f"[DEBUG] User {user_id} has role IDs: {user_role_ids}", flush=True)
-    print(f"[DEBUG] Checking for required role ID: {required_role_id}", flush=True)
+    # 2. Nejdřív zkus načíst role z kontextu uživatele (z WhoAmIExtension nebo z GraphQL query)
+    user_roles = user.get("roles")
+    logger.debug(f"user_has_role: user roles from context: {user_roles}")
+    
+    if user_roles:
+        for role in user_roles:
+            # Role může být dict s "roletype" nebo přímo roletype_id
+            roletype_id = None
+            if isinstance(role, dict):
+                roletype = role.get("roletype")
+                logger.debug(f"user_has_role: checking role={role}, roletype={roletype}")
+                if roletype:
+                    roletype_id = roletype.get("id") if isinstance(roletype, dict) else roletype
+                # Alternativně může být roletype_id přímo v role
+                if not roletype_id:
+                    roletype_id = role.get("roletype_id")
+            
+            if roletype_id:
+                try:
+                    roletype_uuid = UUID(str(roletype_id))
+                    logger.debug(f"user_has_role: comparing roletype_uuid={roletype_uuid} with required_role_id={required_role_id}")
+                    if roletype_uuid == required_role_id:
+                        logger.info(f"user_has_role: MATCH FOUND! User {user_id} has role '{role_name}' (roletype_id={roletype_uuid})")
+                        return True
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"user_has_role: error converting roletype_id to UUID: {e}")
 
-    # 3. Zkontroluje, zda má uživatel požadované ID role
+    # 3. Pokud nejsou role v kontextu, načti z databáze
+    logger.debug(f"user_has_role: roles not found in context, loading from DB for user_id={user_id}")
+    user_role_ids = await get_user_roles_from_db(user_id, info)
+    logger.debug(f"user_has_role: user_role_ids from DB: {user_role_ids}")
+
+    # 4. Zkontroluje, zda má uživatel požadované ID role
     if required_role_id in user_role_ids:
-        print(f"[DEBUG] SUCCESS: User has the required role '{role_name}'.", flush=True)
+        logger.info(f"user_has_role: MATCH FOUND in DB! User {user_id} has role '{role_name}' (roletype_id={required_role_id})")
         return True
     
-    print(f"[DEBUG] FAILURE: User does not have the required role '{role_name}'.", flush=True)
+    logger.warning(f"user_has_role: NO MATCH! User {user_id} does NOT have role '{role_name}' (required_role_id={required_role_id}, user_role_ids={user_role_ids})")
     return False
 
 

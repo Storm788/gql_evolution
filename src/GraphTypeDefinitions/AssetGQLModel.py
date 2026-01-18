@@ -3,6 +3,11 @@ import datetime
 import strawberry
 
 from uoishelpers.gqlpermissions import OnlyForAuthentized
+from uoishelpers.gqlpermissions.LoadDataExtension import LoadDataExtension
+from uoishelpers.gqlpermissions.RbacProviderExtension import RbacProviderExtension
+from uoishelpers.gqlpermissions.RbacInsertProviderExtension import RbacInsertProviderExtension
+from uoishelpers.gqlpermissions.UserRoleProviderExtension import UserRoleProviderExtension
+from uoishelpers.gqlpermissions.UserAccessControlExtension import UserAccessControlExtension
 from uoishelpers.resolvers import (
     getLoadersFromInfo,
     createInputs2,
@@ -47,7 +52,6 @@ AssetUpdateErrorType = UpdateError["AssetGQLModel"]  # type: ignore[index]
 AssetDeleteErrorType = DeleteError["AssetGQLModel"]  # type: ignore[index]
 
 
-# @createInputs2  # Commented out to avoid Apollo Gateway syntax errors with multiline descriptions
 @strawberry.input
 class AssetInputFilter:
 
@@ -72,7 +76,7 @@ class AssetInputFilter:
 class AssetGQLModel(BaseGQLModel):
     @classmethod
     def getLoader(cls, info: strawberry.types.Info):
-        return getLoadersFromInfo(info).AssetModel
+        return getLoadersFromInfo(info)["AssetModel"]
 
     name: typing.Optional[str] = strawberry.field(
         description="Human-readable name of the asset (e.g., 'Lenovo T14').",
@@ -149,7 +153,7 @@ class AssetQuery:
     )
     async def asset_by_id(self, info: strawberry.types.Info, id: IDType) -> typing.Optional[AssetGQLModel]:
         """Admin vidí všechno; běžný uživatel jen assety, kde je custodian"""
-        loader = getLoadersFromInfo(info).AssetModel
+        loader = getLoadersFromInfo(info)["AssetModel"]
         row = await loader.load(id)
         if row is None:
             return None
@@ -185,27 +189,23 @@ class AssetQuery:
         if user is None:
             return []
         
-        loader = getLoadersFromInfo(info).AssetModel
+        loader = getLoadersFromInfo(info)["AssetModel"]
         
         # Admin vidí všechno
         if await user_has_role(user, "administrátor", info):
-            print(f"DEBUG asset_page: Admin - vracím všechny assety")
             results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
             return [AssetGQLModel.from_dataclass(row) for row in results]
         
         # Běžný uživatel vidí jen své assety (kde je custodian)
         uid = str(user.get("id"))
-        print(f"DEBUG asset_page: Non-admin user {uid} - filtruje se podle custodian_user_id")
         
         try:
             user_uuid = IDType(uid)
             rows = await loader.filter_by(custodian_user_id=user_uuid)
             rows_list = list(rows)
-            print(f"DEBUG: Nalezeno {len(rows_list)} assetů pro custodian {uid}")
             rows_list = rows_list[skip:skip+limit] if skip or limit else rows_list
             return [AssetGQLModel.from_dataclass(row) for row in rows_list]
         except Exception as e:
-            print(f"ERROR filtering assets by custodian_user_id {uid}: {e}")
             return []
 
 
@@ -236,7 +236,7 @@ class AssetInsertGQLModel(InputModelMixin):
         description="Responsible user id.", default=None
     )
 
-    rbacobject_id: strawberry.Private[IDType] = None
+    rbacobject_id: strawberry.Private[IDType] = IDType("d75d64a4-bf5f-43c5-9c14-8fda7aff6c09")
     createdby_id: strawberry.Private[IDType] = None
 
 
@@ -277,108 +277,70 @@ class AssetDeleteGQLModel:
     lastchange: datetime.datetime = strawberry.field(description="Concurrency token")
 
 
-@strawberry.type(description="Asset mutations")
+@strawberry.interface(description="Asset mutations")
 class AssetMutation:
-    @strawberry.field(
+    @strawberry.mutation(
         description="Insert a new asset record.",
         permission_classes=[OnlyForAuthentized],
+        extensions=[
+            UserAccessControlExtension[InsertError, AssetGQLModel](
+                roles=["administrátor"]
+            ),
+            UserRoleProviderExtension[InsertError, AssetGQLModel](),
+            RbacInsertProviderExtension[InsertError, AssetGQLModel](
+                rbac_key_name="rbacobject_id"
+            ),
+        ],
     )
     async def asset_insert(
-        self, info: strawberry.types.Info, asset: AssetInsertGQLModel
+        self,
+        info: strawberry.Info,
+        asset: AssetInsertGQLModel,
+        rbacobject_id: IDType,
+        user_roles: typing.List[dict],
     ) -> typing.Union[AssetGQLModel, AssetInsertErrorType]:
-        user = ensure_user_in_context(info)
-        if user is None:
-            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
-            return AssetInsertErrorType(
-                msg=format_error_message(error_code),
-                code=error_code,
-                _entity=None,
-                _input=asset
-            )
-        
-        # Only admin can create assets
-        admin = await user_has_role(user, "administrátor", info)
-        try:
-            print(f"DEBUG asset_insert: user={user.get('id')} admin={admin}")
-        except Exception:
-            pass
-        if not admin:
-            error_code = ErrorCodeUUID("4a8b2c3d-5e6f-4b7c-9d0e-1f2a3b4c5d6e")
-            return AssetInsertErrorType(
-                msg=format_error_message(error_code),
-                code=error_code,
-                _entity=None,
-                _input=asset
-            )
-        
-        result = await Insert[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
-        return result
+        return await Insert[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
 
-    @strawberry.field(
+    @strawberry.mutation(
         description="Update an existing asset record.",
         permission_classes=[OnlyForAuthentized],
+        extensions=[
+            UserAccessControlExtension[UpdateError, AssetGQLModel](
+                roles=["administrátor"]
+            ),
+            UserRoleProviderExtension[UpdateError, AssetGQLModel](),
+            RbacProviderExtension[UpdateError, AssetGQLModel](),
+            LoadDataExtension[UpdateError, AssetGQLModel](),
+        ],
     )
     async def asset_update(
-        self, info: strawberry.types.Info, asset: AssetUpdateGQLModel
+        self,
+        info: strawberry.Info,
+        asset: AssetUpdateGQLModel,
+        db_row: typing.Any,
+        rbacobject_id: IDType,
+        user_roles: typing.List[dict],
     ) -> typing.Union[AssetGQLModel, AssetUpdateErrorType]:
-        user = ensure_user_in_context(info)
-        if user is None:
-            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
-            return AssetUpdateErrorType(
-                msg=format_error_message(error_code),
-                code=error_code,
-                _entity=None,
-                _input=asset
-            )
-        
-        admin = await user_has_role(user, "administrátor", info)
-        try:
-            print(f"DEBUG asset_update: user={user.get('id')} admin={admin}")
-        except Exception:
-            pass
-        if not admin:
-            error_code = ErrorCodeUUID("4a8b2c3d-5e6f-4b7c-9d0e-1f2a3b4c5d6f")
-            return AssetUpdateErrorType(
-                msg=format_error_message(error_code),
-                code=error_code,
-                _entity=None,
-                _input=asset
-            )
-        
-        result = await Update[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
-        return result
+        return await Update[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
 
-    @strawberry.field(
+    @strawberry.mutation(
         description="Delete an asset record.",
         permission_classes=[OnlyForAuthentized],
+        extensions=[
+            UserAccessControlExtension[DeleteError, AssetGQLModel](
+                roles=["administrátor"]
+            ),
+            UserRoleProviderExtension[DeleteError, AssetGQLModel](),
+            RbacProviderExtension[DeleteError, AssetGQLModel](),
+            LoadDataExtension[DeleteError, AssetGQLModel](),
+        ],
     )
     async def asset_delete(
-        self, info: strawberry.types.Info, asset: AssetDeleteGQLModel
-    ) -> typing.Union[AssetGQLModel, AssetDeleteErrorType]:
-        user = ensure_user_in_context(info)
-        if user is None:
-            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
-            return AssetDeleteErrorType(
-                msg=format_error_message(error_code),
-                code=error_code,
-                _entity=None,
-                _input=asset
-            )
-        
-        admin = await user_has_role(user, "administrátor", info)
-        try:
-            print(f"DEBUG asset_delete: user={user.get('id')} admin={admin}")
-        except Exception:
-            pass
-        if not admin:
-            error_code = ErrorCodeUUID("4a8b2c3d-5e6f-4b7c-9d0e-1f2a3b4c5d70")
-            return AssetDeleteErrorType(
-                msg=format_error_message(error_code),
-                code=error_code,
-                _entity=None,
-                _input=asset
-            )
-        result = await Delete[AssetGQLModel].DoItSafeWay(info=info, entity=asset)
-        if result is None:
-            return AssetGQLModel(id=asset.id)
-        return result
+        self,
+        info: strawberry.Info,
+        asset: AssetDeleteGQLModel,
+        db_row: typing.Any,
+        rbacobject_id: IDType,
+        user_roles: typing.List[dict],
+    ) -> typing.Optional[DeleteError[AssetGQLModel]]:
+        return await Delete[AssetGQLModel].DoItSafeWay(info=info, entity=asset)

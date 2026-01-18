@@ -57,7 +57,7 @@ class EventInvitationGQLModel(BaseGQLModel):
 
     @classmethod
     def getLoader(cls, info: strawberry.types.Info):
-        return getLoadersFromInfo(info).EventInvitationModel
+        return getLoadersFromInfo(info)["EventInvitationModel"]
 
     event_id: typing.Optional[IDType] = strawberry.field(
         description="""Event assigned to the invitation""",
@@ -174,11 +174,19 @@ class EventInvitationDeleteGQLModel:
     )
 
 
+def _get_event_loader_for_invitation(info: strawberry.types.Info):
+    """
+    Lazily imports and returns the loader for EventGQLModel.
+    Used to break a circular import dependency.
+    """
+    from .EventGQLModel import EventGQLModel
+    return EventGQLModel.getLoader(info)
+
+
 @strawberry.type(
     description="""EventInvitation mutation"""
 )
 class EventInvitationMutation:
-    from .EventGQLModel import EventGQLModel
     @strawberry.field(
         description="""Insert a EventInvitation""",
         permission_classes=[
@@ -196,7 +204,7 @@ class EventInvitationMutation:
             UserRoleProviderExtension[InsertError, EventInvitationGQLModel](),
             RbacProviderExtension[InsertError, EventInvitationGQLModel](),
             LoadDataExtension[InsertError, EventInvitationGQLModel](
-                getLoader=EventGQLModel.getLoader,
+                getLoader=_get_event_loader_for_invitation,
                 primary_key_name="event_id"
             )
         ],
@@ -230,10 +238,10 @@ class EventInvitationMutation:
     ) -> typing.Union[EventInvitationGQLModel, UpdateError[EventInvitationGQLModel]]:
         user = getUserFromInfo(info=info)
         if user["id"] == db_row.user_id:
-            possible_values = set(
-                IDType('7d2ef223-b60e-4e6d-b7d5-5fdc1f8e2ec2'), # 'accepted'
-                IDType('d6a5e9e4-3e47-4c95-a4aa-b194dd2bc3a7'), # 'declined',  
-            )
+            possible_values = {
+                IDType('7d2ef223-b60e-4e6d-b7d5-5fdc1f8e2ec2'),  # 'accepted'
+                IDType('d6a5e9e4-3e47-4c95-a4aa-b194dd2bc3a7'),  # 'declined'
+            }
             if invitation.state_id in possible_values:
                 return await Update[EventInvitationGQLModel].DoItSafeWay(info=info, entity=invitation)
         return UpdateError[EventInvitationGQLModel](
