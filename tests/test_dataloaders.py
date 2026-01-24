@@ -6,12 +6,12 @@ from .shared import (
     prepare_in_memory_sqllite
     )
 
-from utils.Dataloaders import getUserFromInfo
+from src.Utils.Dataloaders import getUserFromInfo
 
 @pytest.mark.asyncio
 async def test_get_user():
-    #asyncSessionMaker = await prepare_in_memory_sqllite()
-    info = createInfo(asyncSessionMaker=None, withuser=False)
+    asyncSessionMaker = await prepare_in_memory_sqllite()
+    info = createInfo(asyncSessionMaker=asyncSessionMaker, withuser=False)
 
     user = getUserFromInfo(info)
     logging.info(user)

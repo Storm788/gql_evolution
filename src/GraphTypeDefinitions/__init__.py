@@ -1,11 +1,13 @@
 import datetime
 import strawberry
+import warnings
 
 from .query import Query
 from .mutation import Mutation
 
+# Potlač deprecation warning pro strawberry.scalar() - používáme starý způsob, který stále funguje
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="strawberry.scalar")
 timedelta = strawberry.scalar(
-    # NewType("TimeDelta", float),
     datetime.timedelta,
     name="timedelta",
     serialize=lambda v: v.total_seconds() / 60,
@@ -20,6 +22,7 @@ from .GroupGQLModel import GroupGQLModel
 from .AssetGQLModel import AssetGQLModel
 from .AssetInventoryRecordGQLModel import AssetInventoryRecordGQLModel
 from .AssetLoanGQLModel import AssetLoanGQLModel
+from .query import WhoAmIType
 
 schema = strawberry.federation.Schema(
     query=Query,
@@ -31,6 +34,7 @@ schema = strawberry.federation.Schema(
         AssetGQLModel,
         AssetInventoryRecordGQLModel,
         AssetLoanGQLModel,
+        WhoAmIType,
     ), 
     scalar_overrides={datetime.timedelta: timedelta._scalar_definition},
     extensions=[],

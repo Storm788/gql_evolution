@@ -107,31 +107,40 @@ async def get_user_roles_from_db(user_id: UUID, info: strawberry.types.Info) -> 
     except Exception as e:
         logger.warning(f"get_user_roles_from_db: error loading roles from DB: {e}", exc_info=True)
 
-    # Pokud nejsou role v DB, zkus načíst ze systemdata.combined.json
+    # Pokud nejsou role v DB, zkus načíst ze systemdata souborů
     try:
         import json
         from pathlib import Path
-        data_path = Path(__file__).parent.parent.parent / "systemdata.json"
-        if data_path.exists():
-            with open(data_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                roles = data.get('roles', [])
-                user_roles = set()
-                for role in roles:
-                    if role.get('user_id') == str(user_id) and role.get('valid', True):
-                        # Kontrola datumu
-                        import datetime
-                        now = datetime.datetime.now().isoformat()
-                        start = role.get('startdate')
-                        end = role.get('enddate')
-                        if (not start or start <= now) and (not end or end >= now):
-                            roletype_id = role.get('roletype_id')
-                            if roletype_id:
-                                user_roles.add(UUID(roletype_id))
-                if user_roles:
-                    return user_roles
+        # Zkus více souborů v pořadí: rnd (priorita), standard
+        for filename in ["systemdata.rnd.json", "systemdata.json"]:
+            data_path = Path(__file__).parent.parent.parent / filename
+            if data_path.exists():
+                logger.debug(f"Loading roles from {filename}")
+                with open(data_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    roles = data.get('roles', [])
+                    logger.debug(f"Found {len(roles)} roles in {filename}")
+                    user_roles = set()
+                    for role in roles:
+                        if role.get('user_id') == str(user_id) and role.get('valid', True):
+                            # Kontrola datumu
+                            import datetime
+                            now = datetime.datetime.now().isoformat()
+                            start = role.get('startdate')
+                            end = role.get('enddate')
+                            if (not start or start <= now) and (not end or end >= now):
+                                roletype_id = role.get('roletype_id')
+                                if roletype_id:
+                                    user_roles.add(UUID(roletype_id))
+                    if user_roles:
+                        logger.debug(f"Found {len(user_roles)} roles for user {user_id} in {filename}")
+                        return user_roles
+    except UnicodeDecodeError as e:
+        logger.warning(f"Encoding error loading roles from systemdata files: {e}")
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON decode error loading roles from systemdata files: {e}")
     except Exception as e:
-        pass # Or log properly
+        logger.debug(f"Error loading roles from systemdata files: {e}", exc_info=True)
     return set()
 
 

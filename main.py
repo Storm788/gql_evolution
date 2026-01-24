@@ -100,10 +100,26 @@ async def RunOnceAndReturnSessionMaker():
 # region FastAPI setup
 async def get_context(request: Request):
     asyncSessionMaker = await RunOnceAndReturnSessionMaker()
+    
+    # Ulož sessionmaker do globální cache pro createLoadersContextWrapper
+    global _session_maker_cache
+    _session_maker_cache = asyncSessionMaker
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"get_context: asyncSessionMaker type: {type(asyncSessionMaker)}, callable: {callable(asyncSessionMaker)}")
         
     from src.Dataloaders import createLoadersContext
     from src.Utils.Dataloaders import _extract_demo_user_id, _load_user_from_systemdata
     context = createLoadersContext(asyncSessionMaker)
+    
+    # Debug: zkontroluj, jestli session_maker je správně nastaven
+    if "loaders" in context:
+        loaders = context["loaders"]
+        if hasattr(loaders, "session_maker"):
+            logger.info(f"get_context: loaders.session_maker type: {type(loaders.session_maker)}, callable: {callable(loaders.session_maker)}")
+        else:
+            logger.warning("get_context: loaders.session_maker not found!")
 
     result = {**context}
     result["request"] = request
@@ -111,13 +127,59 @@ async def get_context(request: Request):
     # Nastav uživatele z x-demo-user-id před tím, než WhoAmIExtension začne pracovat
     # WhoAmIExtension pak může použít existujícího uživatele nebo ho přepsat, pokud má lepší data
     demo_user_id = _extract_demo_user_id(request)
+    
+    # Debug logging
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Zkontroluj všechny hlavičky pro debug
+    if hasattr(request, "headers"):
+        try:
+            headers_dict = dict(request.headers) if hasattr(request.headers, "__iter__") else {}
+            logger.info(f"Request headers keys: {list(headers_dict.keys())}")
+            logger.info(f"x-demo-user-id header: {headers_dict.get('x-demo-user-id') or headers_dict.get('X-Demo-User-Id')}")
+            logger.info(f"Authorization header: {headers_dict.get('authorization') or headers_dict.get('Authorization')}")
+        except Exception as e:
+            logger.warning(f"Error reading headers: {e}")
+    
+    logger.info(f"Extracted demo_user_id: {demo_user_id}")
+    
     if demo_user_id:
-        user_data = _load_user_from_systemdata(demo_user_id)
-        if user_data:
-            result["user"] = user_data
+        # Pokud je to JWT token, zkus extrahovat user_id z payloadu a načíst uživatele ze systemdata
+        # JWT token může začínat 'eyJ' (base64) nebo 'Bearer eyJ'
+        if demo_user_id.startswith('eyJ') or demo_user_id.startswith('Bearer ') or 'eyJ' in demo_user_id:
+            from src.Utils.Dataloaders import _extract_user_id_from_jwt
+            user_id_from_jwt = _extract_user_id_from_jwt(demo_user_id)
+            if user_id_from_jwt:
+                logger.info(f"Extracted user_id from JWT: {user_id_from_jwt}")
+                # Načti uživatele ze systemdata pomocí user_id z JWT
+                user_data = _load_user_from_systemdata(user_id_from_jwt)
+                if user_data:
+                    result["user"] = user_data
+                    result["__original_user"] = user_data  # Ulož pro WhoAmIExtension
+                    logger.info(f"User loaded from systemdata via JWT: {user_data.get('name')} {user_data.get('surname')} ({user_data.get('id')})")
+                else:
+                    # Pokud nenajdeme uživatele v systemdata, použijeme alespoň ID z JWT
+                    result["user"] = {"id": user_id_from_jwt}
+                    result["__original_user"] = {"id": user_id_from_jwt}
+                    logger.warning(f"User {user_id_from_jwt} from JWT not found in systemdata, using ID only")
+            else:
+                logger.info(f"Could not extract user_id from JWT token, letting WhoAmIExtension handle it")
         else:
-            # Pokud nenajdeme uživatele v systemdata, použijeme alespoň ID
-            result["user"] = {"id": demo_user_id}
+            # Zkus načíst uživatele ze systemdata
+            user_data = _load_user_from_systemdata(demo_user_id)
+            logger.debug(f"Loaded user_data from systemdata: {user_data}")
+            if user_data:
+                result["user"] = user_data
+                result["__original_user"] = user_data  # Ulož pro WhoAmIExtension
+                logger.info(f"User set in context: {user_data.get('name')} {user_data.get('surname')} ({user_data.get('id')})")
+            else:
+                # Pokud nenajdeme uživatele v systemdata, použijeme alespoň ID
+                result["user"] = {"id": demo_user_id}
+                result["__original_user"] = {"id": demo_user_id}
+                logger.warning(f"User {demo_user_id} not found in systemdata, using ID only")
+    else:
+        logger.debug("No demo_user_id found in request")
     
     return result
 
@@ -150,8 +212,68 @@ graphql_app = GraphQLRouter(
 
 from uoishelpers.schema import SessionCommitExtensionFactory
 from src.Dataloaders import createLoadersContext
+
+# Globální cache pro sessionmaker (získáme z RunOnceAndReturnSessionMaker)
+_session_maker_cache = None
+
+def _get_session_maker():
+    """Získá sessionmaker z cache. Cache se naplní při prvním volání get_context."""
+    global _session_maker_cache
+    if _session_maker_cache is None:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("createLoadersContextWrapper: sessionmaker cache is empty, this should not happen if get_context was called first")
+        # Pokud cache není naplněná, zkusíme použít RunOnceAndReturnSessionMaker synchronně
+        # Ale to není ideální, protože je to async funkce
+        # V tomto případě bychom měli použít asyncio.run() v novém threadu
+        import asyncio
+        import concurrent.futures
+        try:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, RunOnceAndReturnSessionMaker())
+                _session_maker_cache = future.result()
+        except Exception as e:
+            logger.error(f"createLoadersContextWrapper: error getting sessionmaker: {e}")
+            raise
+    return _session_maker_cache
+
+# Wrapper pro SessionCommitExtensionFactory, který zajistí, že loaders_factory dostane callable factory
+# SessionCommitExtensionFactory může volat loaders_factory s třídou AsyncSession nebo instancí,
+# ale my potřebujeme callable factory (sessionmaker)
+def createLoadersContextWrapper(session_or_factory_or_class):
+    """
+    Wrapper pro createLoadersContext, který zajistí, že dostane callable factory.
+    SessionCommitExtensionFactory může volat tuto funkci s třídou AsyncSession nebo instancí,
+    ale my potřebujeme callable factory (sessionmaker).
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Získej sessionmaker z cache
+    session_maker = _get_session_maker()
+    
+    # Pokud je to callable factory (sessionmaker), použijeme to přímo
+    if callable(session_or_factory_or_class):
+        from sqlalchemy.ext.asyncio import AsyncSession
+        # Zkontroluj, jestli to není třída AsyncSession nebo instance
+        if session_or_factory_or_class is AsyncSession or (isinstance(session_or_factory_or_class, type) and issubclass(session_or_factory_or_class, AsyncSession)):
+            logger.warning(f"createLoadersContextWrapper: received AsyncSession class, using cached sessionmaker")
+            return createLoadersContext(session_maker)
+        
+        if isinstance(session_or_factory_or_class, AsyncSession):
+            logger.warning(f"createLoadersContextWrapper: received AsyncSession instance, using cached sessionmaker")
+            return createLoadersContext(session_maker)
+        
+        # Pokud je to callable a není to třída ani instance, použijeme to jako factory
+        logger.debug(f"createLoadersContextWrapper: received callable factory, using it directly")
+        return createLoadersContext(session_or_factory_or_class)
+    
+    # Pokud to není callable, použijeme sessionmaker z cache
+    logger.warning(f"createLoadersContextWrapper: received non-callable: {type(session_or_factory_or_class)}, using cached sessionmaker")
+    return createLoadersContext(session_maker)
+
 schema.extensions.append(
-    SessionCommitExtensionFactory(session_maker_factory=RunOnceAndReturnSessionMaker, loaders_factory=createLoadersContext)
+    SessionCommitExtensionFactory(session_maker_factory=RunOnceAndReturnSessionMaker, loaders_factory=createLoadersContextWrapper)
 )
 
 

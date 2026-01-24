@@ -17,7 +17,7 @@ services:
   frontend:
     image: hrbolek/frontend
     environment:
-      - DEMO=False
+      - DEMO=True
       - DEMODATA=True
       # link na db mimo stack
       # - POSTGRES_HOST=host.docker.internal:5432
@@ -89,7 +89,7 @@ services:
       - POSTGRES_DB=data
       - JWTPUBLICKEYURL=http://frontend:8000/oauth/publickey
       - JWTRESOLVEUSERPATHURL=http://frontend:8000/oauth/userinfo
-      - DEMO=False
+      - DEMO=True
       - DEMODATA=True
     healthcheck:
       # definice, umoznujici provest test, zda je kontejner v poradku
@@ -105,8 +105,8 @@ services:
     #   - 33012:8000
     depends_on:
       - postgres_gql
-    # volumes:
-    #   - <<: *system-data-volume
+    volumes:
+      - <<: *system-data-volume
     
   postgres_gql:
     image: postgres

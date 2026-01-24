@@ -44,3 +44,7 @@ class UserGQLModel:
         ],
         resolver=VectorResolver[AssetInventoryRecordGQLModel](fkey_field_name="checked_by_user_id", whereType=AssetInventoryRecordInputFilter)
     )
+
+    # Note: The 'roles' field is provided by the 'ug' subgraph as [RoleGQLModel!]!
+    # We removed the duplicate definition here to avoid Apollo Federation composition errors.
+    # If you need roles from systemdata, use the 'roles' field from the 'ug' subgraph instead.

@@ -40,40 +40,58 @@ _UG_TO_SYSTEMDATA_ID = {
 }
 
 def _load_user_cache():
-    """Načte uživatelská data ze systemdata.combined.json a vytvoří mapování pro UG ID"""
+    """Načte uživatelská data ze systemdata souborů a vytvoří mapování pro UG ID
+    Zkouší: systemdata.rnd.json, systemdata.json
+    """
     global _USER_CACHE, _USER_EMAIL_CACHE, _CACHE_LOADED
     
     if _CACHE_LOADED:
         return
     
-    try:
-        data_path = Path(__file__).parent.parent.parent / "systemdata.combined.json"
-        if data_path.exists():
-            with open(data_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                users = data.get('users', [])
-                for user in users:
-                    user_id = user.get('id')
-                    email = user.get('email', '')
-                    user_data = {
-                        'email': email,
-                        'name': user.get('name', ''),
-                        'surname': user.get('surname', ''),
-                        'fullname': f"{user.get('name', '')} {user.get('surname', '')}".strip()
-                    }
-                    if user_id:
-                        _USER_CACHE[user_id] = user_data
-                    if email:
-                        _USER_EMAIL_CACHE[email.lower()] = user_data
-                
-                # Přidej mapování UG ID na user data podle emailu
-                for ug_id, email in _UG_TO_SYSTEMDATA_ID.items():
-                    email_data = _USER_EMAIL_CACHE.get(email.lower())
-                    if email_data:
-                        _USER_CACHE[ug_id] = email_data
-        _CACHE_LOADED = True
-    except Exception as e:
-        pass
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Zkus více souborů v pořadí: rnd (priorita), standard
+    for filename in ["systemdata.rnd.json", "systemdata.json"]:
+        try:
+            data_path = Path(__file__).parent.parent.parent / filename
+            if data_path.exists():
+                logger.debug(f"Loading user cache from {filename}")
+                with open(data_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    users = data.get('users', [])
+                    logger.debug(f"Found {len(users)} users in {filename}")
+                    for user in users:
+                        user_id = user.get('id')
+                        email = user.get('email', '')
+                        user_data = {
+                            'email': email,
+                            'name': user.get('name', ''),
+                            'surname': user.get('surname', ''),
+                            'fullname': f"{user.get('name', '')} {user.get('surname', '')}".strip()
+                        }
+                        if user_id:
+                            _USER_CACHE[user_id] = user_data
+                        if email:
+                            _USER_EMAIL_CACHE[email.lower()] = user_data
+                    
+                    # Přidej mapování UG ID na user data podle emailu
+                    for ug_id, email in _UG_TO_SYSTEMDATA_ID.items():
+                        email_data = _USER_EMAIL_CACHE.get(email.lower())
+                        if email_data:
+                            _USER_CACHE[ug_id] = email_data
+                    
+                    # Pokud jsme načetli uživatele, můžeme skončit
+                    if _USER_CACHE:
+                        logger.info(f"Loaded {len(_USER_CACHE)} users from {filename}")
+                        _CACHE_LOADED = True
+                        return
+        except Exception as e:
+            logger.warning(f"Error loading user cache from {filename}: {e}")
+            continue
+    
+    logger.warning("No systemdata file could be loaded for user cache")
+    _CACHE_LOADED = True
 
 # Cache se bude loadovat on-demand v resolverech (ne při importu)
 
@@ -267,34 +285,41 @@ class AssetLoanDeleteGQLModel:
 class AssetLoanMutation:
     @strawberry.field(name="assetLoanInsert", description="Insert loan", permission_classes=[OnlyForAuthentized])
     async def asset_loan_insert(self, info: strawberry.types.Info, loan: AssetLoanInsertGQLModel) -> typing.Union[AssetLoanGQLModel, InsertError[AssetLoanGQLModel]]:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         user = ensure_user_in_context(info)
+        logger.info(f"asset_loan_insert: user={user.get('id') if user else None}")
+        
         if user is None:
             error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
-            return InsertError[AssetLoanGQLModel](
+            error = InsertError[AssetLoanGQLModel](
                 msg=format_error_message(error_code),
                 code=error_code,
                 _entity=None,
                 _input=loan
             )
+            logger.warning(f"asset_loan_insert: user is None, returning error: {error.msg}")
+            return error
 
         # Pouze admin (role) může přidávat půjčky
-        if not user or not user.get("id"):
-            error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d") # Unauthorized
-            return InsertError[AssetLoanGQLModel](
-                msg="Permission denied: User is not authenticated.",
-                code=error_code
-            )
-
         has_admin_role = await user_has_role(user, "administrátor", info)
+        logger.info(f"asset_loan_insert: user_id={user.get('id')}, has_admin_role={has_admin_role}")
         
         if not has_admin_role:
             error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5d") # Forbidden
-            return InsertError[AssetLoanGQLModel](
-                msg="Permission denied: 'administrator' role required.",
-                code=error_code
+            error = InsertError[AssetLoanGQLModel](
+                msg="K této akci nemáte dostatečná oprávnění.",
+                code=error_code,
+                _entity=None,
+                _input=loan
             )
+            logger.warning(f"asset_loan_insert: permission denied for user {user.get('id')}, returning error: {error.msg}, error type: {type(error)}")
+            return error
         
+        logger.info(f"asset_loan_insert: permission granted, proceeding with insert")
         result = await Insert[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
+        logger.info(f"asset_loan_insert: result type={type(result)}, result={result}")
         return result
 
     @strawberry.field(description="Update loan", permission_classes=[OnlyForAuthentized])

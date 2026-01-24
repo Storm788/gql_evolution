@@ -13,26 +13,74 @@
             height: 100vh;
         }
     </style>
-    <script
-        crossorigin
-        src="https://unpkg.com/react@18/umd/react.production.min.js"
-    ></script>
-    <script
-        crossorigin
-        src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
-    ></script>
-    <link rel="stylesheet" href="https://unpkg.com/graphiql/graphiql.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/graphiql@3/graphiql.min.css" />
 </head>
 <body>
   <div id="userbar" style="padding:8px 12px;background:#f5f5f5;border-bottom:1px solid #ddd;font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;">
     <span id="userlabel">Uživatel: Načítám…</span>
   </div>
-  <div id="graphiql" style="height: calc(100vh - 40px);">Loading...</div>
+  <div id="graphiql" style="height: calc(100vh - 40px);">Načítám GraphiQL...</div>
     <script
-        src="https://unpkg.com/graphiql/graphiql.min.js"
+        crossorigin="anonymous"
+        src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"
+        onerror="handleScriptError('React')"
+    ></script>
+    <script
+        crossorigin="anonymous"
+        src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"
+        onerror="handleScriptError('ReactDOM')"
+    ></script>
+    <script
+        crossorigin="anonymous"
+        src="https://cdn.jsdelivr.net/npm/graphiql@3/graphiql.min.js"
         type="application/javascript"
+        onerror="handleScriptError('GraphiQL')"
     ></script>
     <script>
+        let loadedLibs = { React: false, ReactDOM: false, GraphiQL: false };
+        
+        function handleScriptError(libName) {
+            console.error(`[GraphiQL] Failed to load ${libName} library`);
+            loadedLibs[libName] = false;
+            checkLibsLoaded();
+        }
+        
+        function checkLibsLoaded() {
+            const allLoaded = loadedLibs.React && loadedLibs.ReactDOM && loadedLibs.GraphiQL;
+            if (!allLoaded) {
+                const missing = Object.entries(loadedLibs)
+                    .filter(([_, loaded]) => !loaded)
+                    .map(([name, _]) => name)
+                    .join(', ');
+                document.getElementById('graphiql').innerHTML = 
+                    `Chyba: GraphiQL knihovny se nenačetly. Chybí: ${missing}. Zkontrolujte konzoli prohlížeče (F12).`;
+            }
+        }
+        
+        // Zkontroluj, jestli jsou knihovny načtené
+        function initGraphiQL() {
+            if (typeof React === 'undefined' || typeof ReactDOM === 'undefined' || typeof GraphiQL === 'undefined') {
+                setTimeout(initGraphiQL, 100);
+                return;
+            }
+            loadedLibs.React = true;
+            loadedLibs.ReactDOM = true;
+            loadedLibs.GraphiQL = true;
+            
+            // Všechny knihovny jsou načtené, inicializuj GraphiQL
+            try {
+                initializeGraphiQL();
+            } catch (error) {
+                console.error('[GraphiQL] Error initializing GraphiQL:', error);
+                document.getElementById('graphiql').innerHTML = 
+                    'Chyba: Nepodařilo se inicializovat GraphiQL. Zkontrolujte konzoli prohlížeče (F12).';
+            }
+        }
+        
+        // Spusť kontrolu po načtení stránky
+        setTimeout(initGraphiQL, 100);
+        
+        function initializeGraphiQL() {
 
         // Helper to get user ID from various sources (cookie, localStorage, JWT token)
         function getUserId() {
@@ -56,28 +104,93 @@
           return '';
         }
 
+        // Helper to get cookie value
+        function getCookieValue(name) {
+          const match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()\[\]\\\/+^])/g, '\\$1') + '=([^;]*)'));
+          return match ? decodeURIComponent(match[1]) : null;
+        }
+
         // Custom fetcher that automatically sends cookies and user identification
         const fetcher = (graphQLParams, opts = {}) => {
-          const userId = getUserId();
-          const headers = Object.assign({}, opts.headers || {}, {});
+          const headers = {};
           
-          // Pokud máme user ID, přidej ho jako header (pro demo režim)
-          if (userId && !userId.startsWith('Bearer ') && !userId.startsWith('eyJ')) {
+          // Získej userId z cookies nebo localStorage
+          const userId = getUserId();
+          const authCookie = getCookieValue('authorization');
+          
+          console.log('[GraphiQL] Found authorization cookie (JWT token)');
+          console.log('[GraphiQL] All cookies:', document.cookie);
+          console.log('[GraphiQL] Current URL:', window.location.href);
+          
+          // Pokud máme authorization cookie, použij ho
+          if (authCookie) {
+            headers['Authorization'] = authCookie.startsWith('Bearer ') ? authCookie : `Bearer ${authCookie}`;
+            console.log('[GraphiQL] Adding Authorization header (JWT token), length:', headers['Authorization'].length);
+          } else if (userId && !userId.startsWith('Bearer ') && !userId.startsWith('eyJ')) {
             // Pokud to není JWT token, přidej jako x-demo-user-id
             headers['x-demo-user-id'] = userId;
+            console.log('[GraphiQL] Adding x-demo-user-id header:', userId);
           } else if (userId && (userId.startsWith('Bearer ') || userId.startsWith('eyJ'))) {
             // Pokud je to JWT token, přidej jako Authorization header
             headers['Authorization'] = userId.startsWith('Bearer ') ? userId : `Bearer ${userId}`;
+            console.log('[GraphiQL] Adding Authorization header from userId');
           }
           
-          return fetch('/gql', {
+          // Použij /api/gql/ pro Apollo Gateway (když je GraphiQL servován z frontendu na 33001)
+          // nebo /gql pro přímý přístup k subgraph (když je servován z lokálního serveru na 8001)
+          const isFrontend = window.location.port === '33001' || window.location.hostname.includes('localhost:33001');
+          const graphqlEndpoint = isFrontend 
+            ? '/api/gql/'  // Frontend → Apollo Gateway
+            : '/gql';      // Lokální server → přímý subgraph
+          
+          // Sestav finální hlavičky - naše hlavičky mají prioritu
+          const finalHeaders = {
+            'Content-Type': 'application/json',
+            ...opts.headers,  // Nejdřív hlavičky z GraphiQL (pokud jsou)
+            ...headers       // Pak naše hlavičky (přepíšou GraphiQL hlavičky)
+          };
+          
+          console.log('[GraphiQL] Sending request to:', graphqlEndpoint);
+          console.log('[GraphiQL] Headers:', Object.keys(finalHeaders));
+          if (finalHeaders['Authorization']) {
+            console.log('[GraphiQL] Authorization header present, length:', finalHeaders['Authorization'].length);
+          }
+          if (finalHeaders['x-demo-user-id']) {
+            console.log('[GraphiQL] x-demo-user-id header present:', finalHeaders['x-demo-user-id']);
+          }
+          
+          return fetch(graphqlEndpoint, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...headers
-            },
-            credentials: 'include', // DŮLEŽITÉ: posílá cookies automaticky
+            headers: finalHeaders,
+            credentials: 'include', // DŮLEŽITÉ: posílá cookies automaticky (pro /whoami endpoint)
             body: JSON.stringify(graphQLParams),
+          })
+          .then(response => {
+            console.log('[GraphiQL] Response status:', response.status, response.statusText);
+            console.log('[GraphiQL] Response headers:', Object.fromEntries(response.headers.entries()));
+            
+            if (!response.ok) {
+              console.error('[GraphiQL] Response not OK:', response.status, response.statusText);
+              return response.text().then(text => {
+                console.error('[GraphiQL] Response body:', text);
+                throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`);
+              });
+            }
+            
+            return response.json().then(data => {
+              console.log('[GraphiQL] Parsed response data:', JSON.stringify(data, null, 2));
+              return data; // Return parsed data directly as GraphiQL expects
+            }).catch(error => {
+              console.error('[GraphiQL] Error parsing JSON response:', error);
+              return response.text().then(text => {
+                console.error('[GraphiQL] Raw response body:', text);
+                throw new Error(`Failed to parse JSON response: ${error.message}`);
+              });
+            });
+          })
+          .catch(error => {
+            console.error('[GraphiQL] Fetch error:', error);
+            throw error;
           });
         };
 
@@ -102,6 +215,7 @@
         // Aktualizuj každých 5 sekund (pro případ, že se uživatel přihlásí v jiném okně)
         setInterval(updateUserLabel, 5000);
         
+        // Render GraphiQL
         ReactDOM.render(
             React.createElement(GraphiQL, {
                 fetcher: fetcher,
@@ -162,9 +276,10 @@ mutation CreateLoan {
 #   "x-demo-user-id": "76dac14f-7114-4bb2-882d-0d762eab6f4a"
 # }
 `,
-            }),
-            document.getElementById('graphiql'),
-        );
+                }),
+                document.getElementById('graphiql'),
+            );
+        }
     </script>
 </body>
 </html>
