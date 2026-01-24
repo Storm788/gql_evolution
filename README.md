@@ -183,13 +183,86 @@ Frontend + GraphiQL (:33001) → Apollo Gateway (:33000) → Subgraphs
 
 ---
 
+### 24. 01. 2026 | Push 14: Fix Apollo Gateway schema composition error
+
+**Problém:**
+- Apollo Gateway se nemohl připojit kvůli schema composition error
+- Duplicitní `roles` field v `UserGQLModel` - v "evolution" subgraphu měl typ `[JSON!]`, v "ug" subgraphu `[RoleGQLModel!]!`
+- Field byl také non-shareable a resolved z více subgraphů
+
+**Řešení:**
+- Odstraněn duplicitní `roles` field z `src/GraphTypeDefinitions/UserGQLModel.py` v evolution subgraphu
+- Field je nyní poskytován pouze "ug" subgraphem jako `[RoleGQLModel!]!`
+- Přidána poznámka v kódu vysvětlující, proč byl field odstraněn
+
+**Výsledek:**
+- Apollo Gateway se úspěšně připojil a složil schema z obou subgraphů
+- Federované entity fungují správně
+
+---
+
+### 24. 01. 2026 | Push 15: Fix InsertError missing _input argument
+
+**Problém:**
+- Když viewer nebo editor zkusil vytvořit zápůjčku pomocí `assetLoanInsert` mutace, dostal Python error:
+  ```
+  InsertError.__init__() missing 1 required keyword-only argument: '_input'
+  ```
+- Technická chybová zpráva místo uživatelsky přívětivé zprávy
+
+**Řešení:**
+- Přidán `_input=loan` a `_entity=None` do všech `InsertError` volání v `asset_loan_insert` resolveru
+- Změněna chybová zpráva na českou: "K této akci nemáte dostatečná oprávnění."
+- Přidáno logování pro debugging
+
+**Výsledek:**
+- Viewer/editor nyní dostává správnou chybovou zprávu v GraphQL response
+- Chyba se zobrazuje jako `AssetLoanGQLModelInsertError` s `msg` a `code` poli
+
+---
+
+### 24. 01. 2026 | Push 16: Fix asset_page query permissions
+
+**Problém:**
+- Viewer uživatel neviděl žádné assety v `asset_page` query (vracel prázdný seznam)
+- Původně bylo plánováno, že viewer bude vidět všechny assety, ale požadavek změněn
+
+**Řešení:**
+- Upravena logika v `asset_page` resolveru v `src/GraphTypeDefinitions/AssetGQLModel.py`
+- Pouze admin vidí všechny assety
+- Viewer a ostatní uživatelé vidí jen assety, kde jsou custodian
+- Logika: Admin vidí všechno, běžný uživatel (včetně viewer) vidí jen assety, kde je custodian
+
+**Výsledek:**
+- Pouze admin vidí všechny assety v `asset_page` query
+- Viewer a ostatní uživatelé vidí jen assety, kde jsou custodian
+
+---
+
+### 24. 01. 2026 | Push 17: Manual RBAC check for assetLoanInsert
+
+**Problém:**
+- `UserAccessControlExtension` nefungovala správně - vracela prázdný objekt `{}` místo chybové zprávy
+- Viewer/editor dostávali prázdný objekt místo `InsertError` s českou zprávou
+
+**Řešení:**
+- Přepnuto z `UserAccessControlExtension` na manuální kontrolu role pomocí `user_has_role()`
+- Vráceno k jednoduššímu přístupu s explicitní kontrolou v resolveru
+- Zachována česká chybová zpráva: "K této akci nemáte dostatečná oprávnění."
+
+**Výsledek:**
+- Správné zobrazení chybové zprávy v GraphQL response pro viewer/editor
+- Admin může vytvářet zápůjčky, viewer/editor dostávají správnou chybovou zprávu
+
+---
+
 ## Shrnutí stavu
 
 ✅ **RBAC a autorizace**
-- Admin (Estera) vidí všechna data.
-- Běžní uživatelé vidí pouze svá vlastní.
+- Administrátor vidí všechna data a může provádět všechny operace.
+- Viewer a ostatní uživatelé vidí pouze svá vlastní data (assety, kde jsou custodian).
 - Mutace assetů, půjček a inventarizačních záznamů jsou admin-only.
-- Dvoustupňová ochrana: `OnlyForAuthentized` + `is_admin_user()`.
+- Ochrana: `OnlyForAuthentized` + `user_has_role()` kontrola v resolverech.
 
 ---
 

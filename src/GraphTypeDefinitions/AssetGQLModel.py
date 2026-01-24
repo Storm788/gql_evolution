@@ -184,7 +184,7 @@ class AssetQuery:
         orderby: typing.Optional[str] = None,
         where: typing.Optional[AssetInputFilter] = None,
     ) -> typing.List[AssetGQLModel]:
-        """Admin a viewer vidí všechno; běžný uživatel jen assety, kde je custodian"""
+        """Admin vidí všechno; běžný uživatel jen assety, kde je custodian"""
         import logging
         logger = logging.getLogger(__name__)
         
@@ -199,18 +199,17 @@ class AssetQuery:
         loader = getLoadersFromInfo(info)["AssetModel"]
         
         is_admin = await user_has_role(user, "administrátor", info)
-        is_viewer = await user_has_role(user, "viewer", info)
-        logger.info(f"asset_page: is_admin={is_admin}, is_viewer={is_viewer}")
+        logger.info(f"asset_page: is_admin={is_admin}")
         
-        # Admin a viewer vidí všechno (viewer jen pro čtení)
-        if is_admin or is_viewer:
+        # Admin vidí všechno
+        if is_admin:
             results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
             # Převést generator na list pro len() a iteraci
             results_list = list(results) if hasattr(results, '__iter__') and not isinstance(results, (list, tuple)) else results
-            logger.info(f"asset_page: admin/viewer found {len(results_list)} assets")
+            logger.info(f"asset_page: admin found {len(results_list)} assets")
             return [AssetGQLModel.from_dataclass(row) for row in results_list]
         
-        # Běžný uživatel (ne admin, ne viewer) vidí jen assety, kde je custodian
+        # Běžný uživatel (ne admin) vidí jen assety, kde je custodian
         uid = str(user_id)
         
         try:
