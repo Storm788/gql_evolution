@@ -286,22 +286,22 @@ async def graphiql_endpoint():
 
 @app.get("/voyager", response_class=FileResponse)
 async def voyager():
-    realpath = os.path.realpath("./src/Htmls/voyager.html")
+    realpath = os.path.realpath("./public/voyager.html")
     return realpath
 
 @app.get("/doc", response_class=FileResponse)
 async def doc():
-    realpath = os.path.realpath("./src/Htmls/liveschema.html")
+    realpath = os.path.realpath("./public/liveschema.html")
     return realpath
 
 @app.get("/ui", response_class=FileResponse)
 async def ui():
-    realpath = os.path.realpath("./src/Htmls/livedata.html")
+    realpath = os.path.realpath("./public/livedata.html")
     return realpath
 
 @app.get("/test", response_class=FileResponse)
 async def test():
-    realpath = os.path.realpath("./src/Htmls/tests.html")
+    realpath = os.path.realpath("./public/tests.html")
     return realpath
 
 import prometheus_client

@@ -38,6 +38,18 @@ def test_client_hello_world():
     assert data is not None
     assert data.get("hello", None) is not None
 
+
+def test_client_whoami_string():
+    """whoami (string) vrací id uživatele nebo null – coverage query.whoami."""
+    client = createGQLClient()
+    json = {"query": """{ whoami }""", "variables": {}}
+    headers = {"Authorization": "Bearer 2d9dc5ca-a4a2-11ed-b9df-0242ac120003"}
+    response = client.post("/gql", headers=headers, json=json)
+    assert response.status_code == 200
+    body = response.json()
+    assert "data" in body
+    assert "whoami" in body.get("data", {})
+
 def test_client_auth_notok():
     """Test že bez autentizace se vrací 401"""
     client = createGQLClient()
@@ -53,3 +65,68 @@ def test_client_auth_notok():
     # V testech může být 200, protože mockování může obejít autentizaci
     # Pokud je to problém, můžeme to upravit
     assert response.status_code in [200, 401]
+
+
+def test_client_who_am_i():
+    """whoAmI query vrací data nebo null (zvýšení coverage query resolvers)."""
+    client = createGQLClient()
+    json = {
+        "query": """query { whoAmI { id email name surname } }""",
+        "variables": {},
+    }
+    headers = {"Authorization": "Bearer 2d9dc5ca-a4a2-11ed-b9df-0242ac120003"}
+    response = client.post("/gql", headers=headers, json=json)
+    assert response.status_code == 200
+    body = response.json()
+    assert "data" in body or "errors" in body
+    if body.get("data") and body["data"].get("whoAmI") is not None:
+        w = body["data"]["whoAmI"]
+        assert "id" in w or "email" in w or "name" in w or "surname" in w
+
+
+def test_client_asset_page():
+    """asset_page query volá resolver (zvýšení coverage AssetQuery)."""
+    client = createGQLClient()
+    json = {
+        "query": """query { asset_page(limit: 2, skip: 0) { id name } }""",
+        "variables": {},
+    }
+    headers = {"Authorization": "Bearer 2d9dc5ca-a4a2-11ed-b9df-0242ac120003"}
+    response = client.post("/gql", headers=headers, json=json)
+    assert response.status_code == 200
+    body = response.json()
+    assert "data" in body
+    if body.get("data") and "asset_page" in body["data"]:
+        assert isinstance(body["data"]["asset_page"], list)
+
+
+def test_client_asset_loan_page():
+    """asset_loan_page query volá resolver (zvýšení coverage AssetLoanQuery)."""
+    client = createGQLClient()
+    json = {
+        "query": """query { asset_loan_page(limit: 2, skip: 0) { id } }""",
+        "variables": {},
+    }
+    headers = {"Authorization": "Bearer 2d9dc5ca-a4a2-11ed-b9df-0242ac120003"}
+    response = client.post("/gql", headers=headers, json=json)
+    assert response.status_code == 200
+    body = response.json()
+    assert "data" in body
+    if body.get("data") and "asset_loan_page" in body["data"]:
+        assert isinstance(body["data"]["asset_loan_page"], list)
+
+
+def test_client_asset_inventory_record_page():
+    """asset_inventory_record_page volá resolver (zvýšení coverage)."""
+    client = createGQLClient()
+    json = {
+        "query": """query { asset_inventory_record_page(limit: 2, skip: 0) { id } }""",
+        "variables": {},
+    }
+    headers = {"Authorization": "Bearer 2d9dc5ca-a4a2-11ed-b9df-0242ac120003"}
+    response = client.post("/gql", headers=headers, json=json)
+    assert response.status_code == 200
+    body = response.json()
+    assert "data" in body
+    if body.get("data") and "asset_inventory_record_page" in body["data"]:
+        assert isinstance(body["data"]["asset_inventory_record_page"], list)

@@ -11,8 +11,9 @@ from src.GraphTypeDefinitions.context_utils import ensure_user_in_context
 
 class _ContextDict(dict):
     """Dictionary variant that keeps the original user payload for later reuse.
-    WhoAmIExtension overwrites the `user` entry when federation is not reachable;
-    keeping a copy lets resolvers restore the id so helper utilities continue to work.
+    WhoAmIExtension loads user from gql_ug API and sets it in `user` entry.
+    Keeping a copy in `__original_user` lets resolvers restore the id if needed
+    (e.g., in unit tests where gql_ug is not available).
     """
 
     def __setitem__(self, key, value):
@@ -112,9 +113,10 @@ class _ContextDict(dict):
 def createLoadersContext(session_or_factory):
     """Accepts either an async session factory or a session instance.
 
-    Returns a context dictionary compatible with the expectations of legacy tests
-    while preserving the caller provided user information for scenarios where
-    WhoAmIExtension cannot reach upstream services during unit tests.
+    Returns a context dictionary compatible with the expectations of legacy tests.
+    User information is loaded by WhoAmIExtension from gql_ug API during GraphQL execution.
+    The context preserves user information for scenarios where WhoAmIExtension 
+    cannot reach upstream services during unit tests.
     """
 
     context = _ContextDict()

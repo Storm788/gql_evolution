@@ -8,30 +8,29 @@ import strawberry
 def ensure_user_in_context(info: strawberry.types.Info) -> typing.Optional[dict]:
     """Guarantee that context['user'] holds an identifier.
 
-    WhoAmIExtension replaces the user payload when upstream UG is unreachable
-    (common in unit tests). We keep a copy stored by utils.createLoadersContext
-    under '__original_user' and restore it on demand so resolvers relying on the
-    helper Insert/Update/Delete utilities continue to function.
+    WhoAmIExtension loads user from gql_ug API and sets it in context['user'].
+    This function ensures the user is available for resolvers.
     
     Priority:
-    1. __original_user (uživatel nastavený před WhoAmIExtension z x-demo-user-id)
-    2. user (aktuální uživatel v kontextu)
+    1. user (aktuální uživatel v kontextu nastavený WhoAmIExtension z gql_ug API)
+    2. __original_user (fallback pro testy, pokud WhoAmIExtension selže)
+    3. Authorization header (fallback, pokud není uživatel v kontextu)
     """
 
     context = info.context
     
-    # Nejdřív zkus __original_user (uživatel nastavený před WhoAmIExtension)
+    # Nejdřív zkus aktuálního uživatele v kontextu (nastavený WhoAmIExtension z gql_ug API)
+    user = context.get("user")
+    if user and isinstance(user, dict) and user.get("id"):
+        return user
+    
+    # Pak zkus __original_user (fallback pro testy, pokud WhoAmIExtension selže)
     fallback = context.get("__original_user")
     if fallback and fallback.get("id"):
         # Work on a copy to avoid unexpected mutations.
         restored = copy.deepcopy(fallback)
         context["user"] = restored
         return restored
-    
-    # Pak zkus aktuálního uživatele v kontextu
-    user = context.get("user")
-    if user and isinstance(user, dict) and user.get("id"):
-        return user
     
     # Pokud user není slovník s id, zkus získat id z __original_user nebo z request
     if not user or not isinstance(user, dict) or not user.get("id"):
