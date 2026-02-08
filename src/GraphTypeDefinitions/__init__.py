@@ -48,9 +48,10 @@ schema.extensions.append(WhoAmIExtension)
 schema.extensions.append(PrometheusExtension(prefix="GQL_Evolution"))
 
 # RolePermissionSchemaExtension přepisuje userRolesForRBACQuery_loader na GraphQLBatchLoader (gql_ug).
-# V demo režimu (DEMO=True) ho nepřidáváme – zůstane náš _UserRolesForRBACLoader z get_context (systemdata).
+# DemoRBACLoaderExtension musí běžet AŽ PO ní: když je x-demo-user-id / ug nedostupný, přepíše loader
+# zpět na _UserRolesForRBACLoader (systemdata), aby mutace nevolaly UG a nepadaly na ConnectionRefused.
+from .DemoRBACLoaderExtension import DemoRBACLoaderExtension
 if os.getenv("DEMO") != "True":
     from uoishelpers.gqlpermissions.RolePermissionSchemaExtension import RolePermissionSchemaExtension
     schema.extensions.append(RolePermissionSchemaExtension)
-    from .DemoRBACLoaderExtension import DemoRBACLoaderExtension
-    schema.extensions.append(DemoRBACLoaderExtension)
+schema.extensions.append(DemoRBACLoaderExtension)  # vždy jako poslední: obnoví user + loader pro demo / bez UG

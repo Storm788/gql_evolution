@@ -103,6 +103,12 @@ async def get_context(request: Request):
             else:
                 result["user"] = {"id": demo_user_id}
                 result["__original_user"] = {"id": demo_user_id}
+    # Vždy zajisti, že kontext má "user" s klíčem "id" (UserRoleProviderExtension z uoishelpers volá user["id"]).
+    # Bez toho při selhání UG endpointu nebo bez x-demo-user-id vzniká KeyError.
+    if "user" not in result:
+        result["user"] = {"id": None}
+    elif isinstance(result.get("user"), dict) and "id" not in result["user"]:
+        result["user"]["id"] = None
     return result
 
 innerlifespan = None
