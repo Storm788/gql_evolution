@@ -67,7 +67,8 @@ class DemoRBACLoaderExtension(SchemaExtension):
         if "user" in ctx and isinstance(ctx["user"], dict) and "id" not in ctx["user"]:
             ctx["user"]["id"] = None
 
-        # Přepiš na náš loader ze systemdata, když: chybí ug_client NEBO request používá x-demo-user-id
+        # Přepiš na náš loader ze systemdata (+ DB), když: chybí ug_client NEBO request používá x-demo-user-id
         if ctx.get("ug_client") is None or use_demo:
-            ctx["userRolesForRBACQuery_loader"] = _UserRolesForRBACLoader()
+            session_maker = ctx.get("loaders").session_maker if ctx.get("loaders") else None
+            ctx["userRolesForRBACQuery_loader"] = _UserRolesForRBACLoader(session_maker)
         yield None

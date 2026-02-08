@@ -136,13 +136,34 @@ class AssetGQLModel(BaseGQLModel):
         ),
     )
 
-    loans: typing.List[AssetLoanGQLModel] = strawberry.field(
-        description="Loan records capturing asset loans to users.",
+    @strawberry.field(
+        description="Loan records capturing asset loans to users. Admin vidí všechny půjčky k assetu, běžný uživatel jen své (kde je borrower).",
         permission_classes=[OnlyForAuthentized],
-        resolver=VectorResolver[AssetLoanGQLModel](
-            fkey_field_name="asset_id", whereType=AssetLoanInputFilter
-        ),
     )
+    async def loans(
+        self,
+        info: strawberry.types.Info,
+        where: typing.Optional[AssetLoanInputFilter] = None,
+    ) -> typing.List[AssetLoanGQLModel]:
+        """Admin: všechny půjčky k tomuto assetu. Ne-admin: jen půjčky, kde je borrower aktuální uživatel."""
+        if self.id is None:
+            return []
+        user = ensure_user_in_context(info)
+        if user is None:
+            return []
+        # Použij konkrétní třídu (ne ForwardRef) pro from_dataclass
+        from .AssetLoanGQLModel import AssetLoanGQLModel as AssetLoanGQLModelConcrete
+        loader = getLoadersFromInfo(info)["AssetLoanModel"]
+        is_admin = await user_has_role(user, "administrátor", info)
+        asset_id = IDType(str(self.id))
+        if is_admin:
+            rows = await loader.filter_by(asset_id=asset_id)
+            rows_list = list(rows)
+        else:
+            uid = str(user.get("id"))
+            rows = await loader.filter_by(asset_id=asset_id, borrower_user_id=IDType(uid))
+            rows_list = list(rows)
+        return [AssetLoanGQLModelConcrete.from_dataclass(row) for row in rows_list]
 
 
 @strawberry.interface(description="Asset queries")
@@ -184,12 +205,13 @@ class AssetQuery:
         orderby: typing.Optional[str] = None,
         where: typing.Optional[AssetInputFilter] = None,
     ) -> typing.List[AssetGQLModel]:
-        """Admin vidí všechno; běžný uživatel jen assety, kde je custodian."""
+        """Admin vidí všechno; běžný uživatel vidí assety, kde je custodian, nebo které má vypůjčené (půjčka)."""
         user = ensure_user_in_context(info)
         if user is None:
             return []
         user_id = user.get("id")
         loader = getLoadersFromInfo(info)["AssetModel"]
+        loan_loader = getLoadersFromInfo(info)["AssetLoanModel"]
         is_admin = await user_has_role(user, "administrátor", info)
         if is_admin:
             results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
@@ -197,10 +219,49 @@ class AssetQuery:
             return [AssetGQLModel.from_dataclass(row) for row in results_list]
         try:
             user_uuid = IDType(str(user_id))
-            rows = await loader.filter_by(custodian_user_id=user_uuid)
-            rows_list = list(rows)
-            rows_list = rows_list[skip:skip+limit] if skip or limit else rows_list
-            return [AssetGQLModel.from_dataclass(row) for row in rows_list]
+            # Assety, kde je uživatel custodian
+            custodian_rows = await loader.filter_by(custodian_user_id=user_uuid)
+            custodian_list = list(custodian_rows)
+            seen_ids = {str(row.id) for row in custodian_list}
+            # Assety, které má uživatel vypůjčené (půjčka) – načti i když záznam assetu chybí (stub)
+            loan_rows = await loan_loader.filter_by(borrower_user_id=user_uuid)
+            for loan in loan_rows:
+                if not loan.asset_id:
+                    continue
+                aid_str = str(loan.asset_id)
+                if aid_str in seen_ids:
+                    continue
+                asset_id_typed = IDType(aid_str)
+                asset = await loader.load(asset_id_typed)
+                if asset is not None:
+                    custodian_list.append(asset)
+                    seen_ids.add(aid_str)
+                else:
+                    # Asset v DB není (nová půjčka, jiný zdroj dat) – přidej stub, aby uživatel půjčku viděl
+                    stub = AssetGQLModel(
+                        id=asset_id_typed,
+                        name=f"Asset ({aid_str[:8]}…)",
+                        lastchange=None,
+                        created=None,
+                        createdby_id=None,
+                        changedby_id=None,
+                        inventory_code=None,
+                        description=None,
+                        location=None,
+                        category=None,
+                        owner_group_id=None,
+                        custodian_user_id=None,
+                    )
+                    custodian_list.append(stub)
+                    seen_ids.add(aid_str)
+            rows_list = custodian_list[skip:skip + limit] if skip or limit else custodian_list
+            out = []
+            for row in rows_list:
+                if isinstance(row, AssetGQLModel):
+                    out.append(row)
+                else:
+                    out.append(AssetGQLModel.from_dataclass(row))
+            return out
         except Exception:
             return []
 

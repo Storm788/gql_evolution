@@ -305,6 +305,58 @@ def _load_user_roles_from_systemdata(user_id: str) -> typing.List[typing.Dict[st
     return []
 
 
+# Mapování roletype_id (UUID) -> název pro role načtené z DB (tabulka roles)
+_ROLE_ID_TO_NAME = None
+
+def _get_role_id_to_name():
+    global _ROLE_ID_TO_NAME
+    if _ROLE_ID_TO_NAME is None:
+        from src.GraphTypeDefinitions.permissions import ROLE_NAME_TO_ID
+        _ROLE_ID_TO_NAME = {str(v): k for k, v in ROLE_NAME_TO_ID.items()}
+    return _ROLE_ID_TO_NAME
+
+
+async def load_user_roles_from_db(session_maker, user_id: str) -> typing.List[typing.Dict[str, typing.Any]]:
+    """Načte role uživatele z DB (tabulka roles). Vrací seznam dict ve stejném formátu jako _load_user_roles_from_systemdata."""
+    if not user_id:
+        return []
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        from sqlalchemy import text
+        async with session_maker() as session:
+            result = await session.execute(
+                text("""
+                    SELECT id, roletype_id, valid, startdate, enddate
+                    FROM roles
+                    WHERE user_id = :user_id
+                    AND valid = true
+                    AND (startdate IS NULL OR startdate <= NOW())
+                    AND (enddate IS NULL OR enddate >= NOW())
+                """),
+                {"user_id": str(user_id)},
+            )
+            rows = result.fetchall()
+        id_to_name = _get_role_id_to_name()
+        roles = []
+        for row in rows:
+            rt_id = str(row[1]) if row[1] else None
+            roles.append({
+                "id": str(row[0]),
+                "roletype_id": rt_id,
+                "name": id_to_name.get(rt_id, ""),
+                "valid": bool(row[2]) if row[2] is not None else True,
+                "startdate": row[3],
+                "enddate": row[4],
+            })
+        if roles:
+            logger.debug(f"load_user_roles_from_db: Found {len(roles)} roles for user {user_id}")
+        return roles
+    except Exception as e:
+        logger.debug(f"load_user_roles_from_db: error for user {user_id}: {e}", exc_info=True)
+        return []
+
+
 def _extract_user_id_from_jwt(jwt_token: str) -> typing.Optional[str]:
     """Extract user_id from JWT token payload without verification.
     JWT format: header.payload.signature
@@ -423,13 +475,25 @@ def _load_user_from_systemdata(user_id: str) -> typing.Optional[typing.Dict[str,
 
 class _UserRolesForRBACLoader:
     """Loader pro UserRoleProviderExtension (uoishelpers). Volá se s params={'id': rbacobject_id, 'user_id': user_id}
-    a musí vrátit {'result': [role, ...]}, kde každá role má role['roletype']['name'] (a role['roletype']['id'])."""
+    a musí vrátit {'result': [role, ...]}, kde každá role má role['roletype']['name'] (a role['roletype']['id']).
+    Pokud je předán session_maker, načte role i z DB (tabulka roles) a sloučí se systemdata."""
+
+    def __init__(self, session_maker=None):
+        self.session_maker = session_maker
 
     async def load(self, params: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.List[typing.Dict]]:
         user_id = params.get("user_id")
         if not user_id:
             return {"result": []}
         roles_raw = _load_user_roles_from_systemdata(str(user_id))
+        if self.session_maker:
+            roles_db = await load_user_roles_from_db(self.session_maker, str(user_id))
+            seen_rt = {str(r.get("roletype_id")) for r in roles_raw if r.get("roletype_id")}
+            for r in roles_db:
+                rt_id = str(r.get("roletype_id")) if r.get("roletype_id") else None
+                if rt_id and rt_id not in seen_rt:
+                    seen_rt.add(rt_id)
+                    roles_raw = roles_raw + [r]
         # Formát očekávaný UserAccessControlExtension: role["roletype"]["name"]
         result = []
         for r in roles_raw or []:
@@ -466,4 +530,4 @@ def getUserFromInfo(info: strawberry.types.Info) -> typing.Dict[str, typing.Any]
     return fallback_user
 
 
-__all__ = ["createLoadersContext", "getUserFromInfo", "_extract_demo_user_id", "_load_user_from_systemdata", "_load_user_roles_from_systemdata", "_extract_user_id_from_jwt", "_UserRolesForRBACLoader"]
+__all__ = ["createLoadersContext", "getUserFromInfo", "_extract_demo_user_id", "_load_user_from_systemdata", "_load_user_roles_from_systemdata", "load_user_roles_from_db", "_extract_user_id_from_jwt", "_UserRolesForRBACLoader"]

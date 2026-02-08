@@ -303,6 +303,9 @@ class AssetLoanMutation:
                 _entity=None,
                 _input=loan
             )
+        # Vyplň createdby_id a rbacobject_id (Insert / DB je může očekávat)
+        loan.createdby_id = IDType(str(user.get("id")))
+        loan.rbacobject_id = IDType("d75d64a4-bf5f-43c5-9c14-8fda7aff6c09")
         return await Insert[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
 
     @strawberry.field(description="Update loan", permission_classes=[OnlyForAuthentized])

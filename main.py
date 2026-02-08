@@ -73,12 +73,29 @@ async def get_context(request: Request):
     _session_maker_cache = asyncSessionMaker
 
     from src.Dataloaders import createLoadersContext
-    from src.Utils.Dataloaders import _extract_demo_user_id, _load_user_from_systemdata, _UserRolesForRBACLoader
+    from src.Utils.Dataloaders import _extract_demo_user_id, _load_user_from_systemdata, _load_user_roles_from_systemdata, load_user_roles_from_db, _UserRolesForRBACLoader
     context = createLoadersContext(asyncSessionMaker)
-    context["userRolesForRBACQuery_loader"] = _UserRolesForRBACLoader()
+    context["userRolesForRBACQuery_loader"] = _UserRolesForRBACLoader(asyncSessionMaker)
     result = {**context}
     result["request"] = request
     demo_user_id = _extract_demo_user_id(request)
+
+    async def _merge_and_attach_roles(user_id: str):
+        """Načte role ze systemdata i z DB a sloučí je do result['user']['roles'] a result['user_roles']."""
+        if not user_id:
+            return
+        roles_systemdata = _load_user_roles_from_systemdata(user_id)
+        roles_db = await load_user_roles_from_db(asyncSessionMaker, user_id)
+        seen_rt = {str(r.get("roletype_id")) for r in roles_systemdata if r.get("roletype_id")}
+        merged = list(roles_systemdata)
+        for r in roles_db:
+            rt_id = str(r.get("roletype_id")) if r.get("roletype_id") else None
+            if rt_id and rt_id not in seen_rt:
+                seen_rt.add(rt_id)
+                merged.append(r)
+        if merged:
+            result["user"]["roles"] = merged
+            result["user_roles"] = merged
 
     if demo_user_id:
         result["use_demo_rbac_loader"] = True
@@ -91,18 +108,22 @@ async def get_context(request: Request):
                     result["user"] = user_data
                     result["__original_user"] = user_data
                     result["user_roles"] = user_data.get("roles") or []
+                    await _merge_and_attach_roles(user_id_from_jwt)
                 else:
                     result["user"] = {"id": user_id_from_jwt}
                     result["__original_user"] = {"id": user_id_from_jwt}
+                    await _merge_and_attach_roles(user_id_from_jwt)
         else:
             user_data = _load_user_from_systemdata(demo_user_id)
             if user_data:
                 result["user"] = user_data
                 result["__original_user"] = user_data
                 result["user_roles"] = user_data.get("roles") or []
+                await _merge_and_attach_roles(demo_user_id)
             else:
                 result["user"] = {"id": demo_user_id}
                 result["__original_user"] = {"id": demo_user_id}
+                await _merge_and_attach_roles(demo_user_id)
     # Vždy zajisti, že kontext má "user" s klíčem "id" (UserRoleProviderExtension z uoishelpers volá user["id"]).
     # Bez toho při selhání UG endpointu nebo bez x-demo-user-id vzniká KeyError.
     if "user" not in result:
