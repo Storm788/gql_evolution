@@ -255,13 +255,13 @@ def _load_user_roles_from_systemdata(user_id: str) -> typing.List[typing.Dict[st
         try:
             data_path = Path(__file__).parent.parent.parent / filename
             if data_path.exists():
-                logger.info(f"_load_user_roles_from_systemdata: Loading user roles from {filename} for user_id={user_id}")
+                logger.debug(f"_load_user_roles_from_systemdata: Loading user roles from {filename} for user_id={user_id}")
                 with open(data_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     roles = data.get('roles', [])
                     roletypes = data.get('roletypes', [])
                     roletype_id_to_name = {str(rt.get('id')): rt.get('name', '') for rt in roletypes if rt.get('id')}
-                    logger.info(f"_load_user_roles_from_systemdata: Found {len(roles)} total roles in {filename}")
+                    logger.debug(f"_load_user_roles_from_systemdata: Found {len(roles)} total roles in {filename}")
                     
                     user_roles = []
                     now = datetime.datetime.now().isoformat()
@@ -284,7 +284,7 @@ def _load_user_roles_from_systemdata(user_id: str) -> typing.List[typing.Dict[st
                                 user_roles.append(r)
                     
                     if user_roles:
-                        logger.info(f"_load_user_roles_from_systemdata: Found {len(user_roles)} roles for user {user_id} in {filename}")
+                        logger.debug(f"_load_user_roles_from_systemdata: Found {len(user_roles)} roles for user {user_id} in {filename}")
                         return user_roles
                     else:
                         logger.warning(f"_load_user_roles_from_systemdata: No valid roles found for user {user_id} in {filename} (checked {len([r for r in roles if str(r.get('user_id')) == str(user_id)])} matching roles)")

@@ -109,7 +109,6 @@ async def backupDB(asyncSessionMaker, filename: PathInput = DEFAULT_BACKUP_PATH)
             # vsechny radky do dict
             rowsdict = {}
             for row in rows:
-                # print(row)
                 asdict = dataclasses.asdict(row[0])
                 id = asdict.get("id", None)
                 if id is None: continue
@@ -130,14 +129,11 @@ async def backupDB(asyncSessionMaker, filename: PathInput = DEFAULT_BACKUP_PATH)
                         if value is None: continue
                         if value not in ids: continue
                         if value not in done:
-                            # print(row, key, value)
                             skip_this_id = True
                             break
-                            # primarni klic je zpracovatelny, nemame zavislost na nezpracovanych klicich
                     if skip_this_id: continue
                     row["_chunk"] = chunk_id
                     todo.add(id)
-                print(f"{model.__tablename__} chunk {chunk_id} todo/done/all {len(todo)}/{len(done)}/{len(ids)}")
                 if len(todo) == 0: break
                 done = done.union(todo)
                 todo = set()
@@ -148,4 +144,5 @@ async def backupDB(asyncSessionMaker, filename: PathInput = DEFAULT_BACKUP_PATH)
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False, default=str)
 
-    print("backup done", flush=True)
+    import logging
+    logging.getLogger(__name__).info("backup done")

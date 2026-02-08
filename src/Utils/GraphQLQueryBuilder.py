@@ -58,7 +58,6 @@ class GraphQLQueryBuilder:
         return []
 
     def build_query_vector(self, page_operation:str=None, types: List[str]=[]) -> str:
-        print(f"building query vector for types {types}")
         root = types[0]
         rootfragment = build_large_fragment(self.ast, root)
         page_operations = get_read_vector_values(self.ast)
@@ -114,7 +113,6 @@ class GraphQLQueryBuilder:
         # Append fragments after the main query
         fragments_str = "\n\n".join(fragments)
         result = f"{query}\n\n{fragments_str}\n\n{rootfragment}"
-        print(f"vector query \n{result}")
         return result
     
     def type_node_to_str(self, type_node):
@@ -140,7 +138,6 @@ class GraphQLQueryBuilder:
     def build_query_scalar(self, page_operation:str=None, types: List[str]=[]) -> str:
         
             
-        print(f"building query scalar for types {types}")
         root = types[0]
         rootfragment = build_large_fragment(self.ast, root)
         page_operations = get_read_scalar_values(self.ast)

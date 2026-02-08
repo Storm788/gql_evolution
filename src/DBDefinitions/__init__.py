@@ -20,14 +20,13 @@ async def startEngine(connectionstring, makeDrop=False, makeUp=True):
     async with asyncEngine.begin() as conn:
         if makeDrop:
             await conn.run_sync(BaseModel.metadata.drop_all)
-            print("BaseModel.metadata.drop_all finished")
+            logging.getLogger(__name__).info("BaseModel.metadata.drop_all finished")
         if makeUp:
             try:
                 await conn.run_sync(BaseModel.metadata.create_all)
-                print("BaseModel.metadata.create_all finished")
+                logging.getLogger(__name__).info("BaseModel.metadata.create_all finished")
             except sqlalchemy.exc.NoReferencedTableError as e:
-                print(e)
-                print("Unable automaticaly create tables")
+                logging.getLogger(__name__).warning("Unable to create tables: %s", e)
                 return None
 
     async_sessionMaker = sessionmaker(

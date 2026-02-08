@@ -184,43 +184,24 @@ class AssetQuery:
         orderby: typing.Optional[str] = None,
         where: typing.Optional[AssetInputFilter] = None,
     ) -> typing.List[AssetGQLModel]:
-        """Admin vidí všechno; běžný uživatel jen assety, kde je custodian"""
-        import logging
-        logger = logging.getLogger(__name__)
-        
+        """Admin vidí všechno; běžný uživatel jen assety, kde je custodian."""
         user = ensure_user_in_context(info)
         if user is None:
-            logger.warning("asset_page: user is None")
             return []
-        
         user_id = user.get("id")
-        logger.info(f"asset_page: user_id={user_id}, user={user.get('name')} {user.get('surname')}")
-        
         loader = getLoadersFromInfo(info)["AssetModel"]
-        
         is_admin = await user_has_role(user, "administrátor", info)
-        logger.info(f"asset_page: is_admin={is_admin}")
-        
-        # Admin vidí všechno
         if is_admin:
             results = await loader.page(skip=skip, limit=limit, orderby=orderby, where=where)
-            # Převést generator na list pro len() a iteraci
             results_list = list(results) if hasattr(results, '__iter__') and not isinstance(results, (list, tuple)) else results
-            logger.info(f"asset_page: admin found {len(results_list)} assets")
             return [AssetGQLModel.from_dataclass(row) for row in results_list]
-        
-        # Běžný uživatel (ne admin) vidí jen assety, kde je custodian
-        uid = str(user_id)
-        
         try:
-            user_uuid = IDType(uid)
+            user_uuid = IDType(str(user_id))
             rows = await loader.filter_by(custodian_user_id=user_uuid)
             rows_list = list(rows)
-            logger.info(f"asset_page: non-admin user found {len(rows_list)} assets as custodian")
             rows_list = rows_list[skip:skip+limit] if skip or limit else rows_list
             return [AssetGQLModel.from_dataclass(row) for row in rows_list]
-        except Exception as e:
-            logger.error(f"asset_page: error filtering assets for user {uid}: {e}", exc_info=True)
+        except Exception:
             return []
 
 

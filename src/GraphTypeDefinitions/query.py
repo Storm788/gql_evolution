@@ -38,36 +38,17 @@ class Query(EventQuery, EventInvitationQuery, AssetQuery, AssetInventoryRecordQu
 
     @strawberry.field(name="whoAmI", description="Returns current authenticated user full info")
     async def who_am_i(self, info: strawberry.types.Info) -> typing.Optional[WhoAmIType]:
-        """Returns current user id, email, name, surname or null if not authenticated"""
-        import logging
-        logger = logging.getLogger(__name__)
-        
+        """Returns current user id, email, name, surname or null if not authenticated."""
         try:
             user = ensure_user_in_context(info)
-            logger.info(f"who_am_i: user from context: {user}")
-            
-            if user is None:
-                logger.warning("who_am_i: user is None")
+            if user is None or not user.get("id"):
                 return None
-            
-            user_id = user.get("id")
-            if not user_id:
-                logger.warning(f"who_am_i: user_id is None, user={user}")
-                return None
-            
-            # Načti role z kontextu uživatele (z WhoAmIExtension nebo z jiného zdroje)
-            user_roles = user.get("roles")
-            logger.info(f"who_am_i: user_roles={user_roles}")
-            
-            result = WhoAmIType(
+            return WhoAmIType(
                 id=str(user.get("id", "")) if user.get("id") else None,
                 email=user.get("email"),
                 name=user.get("name"),
                 surname=user.get("surname"),
-                roles=user_roles if user_roles else None
+                roles=user.get("roles") or None
             )
-            logger.info(f"who_am_i: returning WhoAmIType with id={result.id}, email={result.email}, name={result.name}, surname={result.surname}")
-            return result
-        except Exception as e:
-            logger.error(f"who_am_i: error occurred: {e}", exc_info=True)
+        except Exception:
             raise

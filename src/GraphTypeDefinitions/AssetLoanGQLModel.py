@@ -83,7 +83,7 @@ def _load_user_cache():
                     
                     # Pokud jsme načetli uživatele, můžeme skončit
                     if _USER_CACHE:
-                        logger.info(f"Loaded {len(_USER_CACHE)} users from {filename}")
+                        logger.debug(f"Loaded {len(_USER_CACHE)} users from {filename}")
                         _CACHE_LOADED = True
                         return
         except Exception as e:
@@ -285,42 +285,25 @@ class AssetLoanDeleteGQLModel:
 class AssetLoanMutation:
     @strawberry.field(name="assetLoanInsert", description="Insert loan", permission_classes=[OnlyForAuthentized])
     async def asset_loan_insert(self, info: strawberry.types.Info, loan: AssetLoanInsertGQLModel) -> typing.Union[AssetLoanGQLModel, InsertError[AssetLoanGQLModel]]:
-        import logging
-        logger = logging.getLogger(__name__)
-        
         user = ensure_user_in_context(info)
-        logger.info(f"asset_loan_insert: user={user.get('id') if user else None}")
-        
         if user is None:
             error_code = ErrorCodeUUID("1a0b1c2d-3e4f-4a5b-6c7d-8e9f0a1b2c3d")
-            error = InsertError[AssetLoanGQLModel](
+            return InsertError[AssetLoanGQLModel](
                 msg=format_error_message(error_code),
                 code=error_code,
                 _entity=None,
                 _input=loan
             )
-            logger.warning(f"asset_loan_insert: user is None, returning error: {error.msg}")
-            return error
-
-        # Pouze admin (role) může přidávat půjčky
         has_admin_role = await user_has_role(user, "administrátor", info)
-        logger.info(f"asset_loan_insert: user_id={user.get('id')}, has_admin_role={has_admin_role}")
-        
         if not has_admin_role:
-            error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5d") # Forbidden
-            error = InsertError[AssetLoanGQLModel](
+            error_code = ErrorCodeUUID("3f7a1b2c-4e5d-4a6b-8c9d-0e1f2a3b4c5d")
+            return InsertError[AssetLoanGQLModel](
                 msg="K této akci nemáte dostatečná oprávnění.",
                 code=error_code,
                 _entity=None,
                 _input=loan
             )
-            logger.warning(f"asset_loan_insert: permission denied for user {user.get('id')}, returning error: {error.msg}, error type: {type(error)}")
-            return error
-        
-        logger.info(f"asset_loan_insert: permission granted, proceeding with insert")
-        result = await Insert[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
-        logger.info(f"asset_loan_insert: result type={type(result)}, result={result}")
-        return result
+        return await Insert[AssetLoanGQLModel].DoItSafeWay(info=info, entity=loan)
 
     @strawberry.field(description="Update loan", permission_classes=[OnlyForAuthentized])
     async def asset_loan_update(self, info: strawberry.types.Info, loan: AssetLoanUpdateGQLModel) -> typing.Union[AssetLoanGQLModel, UpdateError[AssetLoanGQLModel]]:

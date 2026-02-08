@@ -112,16 +112,9 @@ function buildSelection(schema, fieldType, master) {
         if (fieldType.kind === 'LIST') return buildSelection(schema, fieldType.ofType, fieldType);
         if (fieldType.kind === 'NON_NULL') return buildSelection(schema, fieldType.ofType, fieldType);
         if (fieldType.kind === 'UNION') {
-            const typeDetails = schema.types.find(t => t.name === fieldType.name);
-            const possibleTypes = typeDetails.possibleTypes
-            console.log(fieldType)    
-            console.log(typeDetails)    
-            return '{ __typename }'
-            // return buildSelection(schema, typeDetails, fieldType)
-        };
+            return '{ __typename }';
+        }
     }
-    console.log(master)    
-    console.log(fieldType)    
     return '';
 }
 
