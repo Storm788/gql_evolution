@@ -15,6 +15,8 @@
 
 <script>
 const GRAPHQL_ENDPOINT = '/gql';
+// Uživatel s rolí administrátor (Valentin Křenek) – testy běží pod ním přes x-demo-user-id
+const TEST_USER_ID_ADMIN = '35176143-7a86-4ce0-a611-c5824d750f66';
 
 const introspectionQuery = `
 query IntrospectionQuery {
@@ -89,11 +91,15 @@ query IntrospectionQuery {
   }
 }`;
 
-async function fetchGraphQL(query) {
+async function fetchGraphQL(query, variables) {
+    const body = variables ? { query, variables } : { query };
+    const headers = {'Content-Type': 'application/json'};
+    headers['x-demo-user-id'] = TEST_USER_ID_ADMIN;
     const response = await fetch(GRAPHQL_ENDPOINT, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({query})
+        headers,
+        body: JSON.stringify(body),
+        credentials: 'include'
     });
     return response.json();
 }
@@ -119,93 +125,181 @@ function buildSelection(schema, fieldType, master) {
     return '';
 }
 
+function escapeHtml(text) {
+    if (text == null) return '';
+    const s = String(text);
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 async function runTests() {
-    const introspection = await fetchGraphQL(introspectionQuery);
-    const data = introspection.data
-    const schema = data.__schema
-
-    const queryType = schema.types.find(t => t.name === schema.queryType.name);
-    const fields = queryType.fields.filter(f => f.name.endsWith('Page'));
-
     const resultsDiv = document.getElementById('results');
-    resultsDiv.innerHTML = '';
+    resultsDiv.innerHTML = '<div class="alert alert-info">Načítám schéma…</div>';
 
-    for (const [index, field] of fields.entries()) {
-        let introspectionType = field.type.kind === 'NON_NULL' ? field.type.ofType : field.type;
-        introspectionType = introspectionType.kind === 'LIST' ? introspectionType.ofType : introspectionType;
-        introspectionType = introspectionType.kind === 'NON_NULL' ? introspectionType.ofType : introspectionType;
+    try {
+        const introspection = await fetchGraphQL(introspectionQuery);
+        if (introspection.errors) {
+            resultsDiv.innerHTML = '<div class="alert alert-danger"><strong>Chyba introspection:</strong><pre>' + escapeHtml(JSON.stringify(introspection.errors, null, 2)) + '</pre></div>';
+            return;
+        }
+        const data = introspection.data;
+        if (!data || !data.__schema) {
+            resultsDiv.innerHTML = '<div class="alert alert-danger">Schéma nebylo vráceno.<pre>' + escapeHtml(JSON.stringify(introspection, null, 2)) + '</pre></div>';
+            return;
+        }
+        const schema = data.__schema;
 
-        const typeDetails = schema.types.find(t => t.name === introspectionType.name);
+        const queryType = schema.types.find(t => t.name === schema.queryType.name);
+        if (!queryType) {
+            resultsDiv.innerHTML = '<div class="alert alert-danger">QueryType nenalezen ve schématu.</div>';
+            return;
+        }
+        const fields = queryType.fields.filter(f => f.name.endsWith('Page') && f.name.toLowerCase().includes('asset'));
 
-        if (!typeDetails || !typeDetails.fields) {
-            resultsDiv.innerHTML += `<div class="alert alert-warning">No fields found for type: ${introspectionType.name}</div>`;
-            continue;
+        if (fields.length === 0) {
+            resultsDiv.innerHTML = '<div class="alert alert-warning">Ve schématu nejsou žádná pole *Page obsahující \'asset\'.</div>';
+            return;
         }
 
-        const innerFields = typeDetails.fields;
-        let selectionParts = [];
+        resultsDiv.innerHTML = '<div id="progress" class="alert alert-info">Spouštím testy (' + fields.length + ' polí)…</div>';
+        let cardsAdded = 0;
 
-        innerFields.forEach(innerField => {
-            if (!['__typename', 'id'].includes(innerField.name)) {
-                const selection = buildSelection(schema, innerField.type);
-                selectionParts.push(selection ? `${innerField.name} ${selection}` : innerField.name);
-            }
-        });
+        function removeProgress() {
+            var p = document.getElementById('progress');
+            if (p) p.remove();
+        }
 
-        for (let i = 1; i <= selectionParts.length; i++) {
-            const partialSelection = selectionParts.slice(0, i).join('\n                ');
-            const query = `{
-              ${field.name} {
-                __typename
-                id
-                ${partialSelection}
-              }
-            }`;
+        for (const [index, field] of fields.entries()) {
+            var prog = document.getElementById('progress');
+            if (prog) prog.textContent = 'Testuji ' + field.name + ' (' + (index + 1) + '/' + fields.length + ')…';
 
-            const result = await fetchGraphQL(query);
-            const isError = result.errors;
+            let introspectionType = field.type.kind === 'NON_NULL' ? field.type.ofType : field.type;
+            introspectionType = introspectionType.kind === 'LIST' ? introspectionType.ofType : introspectionType;
+            introspectionType = introspectionType.kind === 'NON_NULL' ? introspectionType.ofType : introspectionType;
 
-            if (isError) {
-                resultsDiv.innerHTML += `
-                <div class="card mb-3">
-                  <div class="card-header bg-danger text-white">
-                    <strong>${field.name} - Error on field: ${selectionParts[i-1]}</strong>
-                    <button class="btn btn-sm btn-light float-end" data-bs-toggle="collapse" data-bs-target="#collapse${index}">
-                      Hide
-                    </button>
-                  </div>
-                  <div id="collapse${index}" class="collapse show">
-                    <div class="card-body">
-                      <pre>${query}</pre>
-                    </div>
-                    <div class="card-footer">
-                      <pre>${JSON.stringify(result, null, 2)}</pre>
-                    </div>
-                  </div>
-                </div>`;
-                break;
+            const typeDetails = schema.types.find(t => t.name === introspectionType.name);
+
+            if (!typeDetails || !typeDetails.fields) {
+                removeProgress();
+                resultsDiv.innerHTML += '<div class="alert alert-warning">No fields found for type: ' + escapeHtml(introspectionType?.name || '?') + '</div>';
+                continue;
             }
 
-            if (i === selectionParts.length) {
-                resultsDiv.innerHTML += `
-                <div class="card mb-3">
-                  <div class="card-header bg-success text-white">
-                    <strong>${field.name}</strong>
-                    <button class="btn btn-sm btn-light float-end" data-bs-toggle="collapse" data-bs-target="#collapse${index}">
-                      Show
-                    </button>
-                  </div>
-                  <div id="collapse${index}" class="collapse">
-                    <div class="card-body">
-                      <pre>${query}</pre>
-                    </div>
-                    <div class="card-footer">
-                      <pre>${JSON.stringify(result, null, 2)}</pre>
-                    </div>
-                  </div>
-                </div>`;
+            const innerFields = typeDetails.fields;
+            let selectionParts = [];
+
+            innerFields.forEach(innerField => {
+                if (!['__typename', 'id'].includes(innerField.name)) {
+                    const selection = buildSelection(schema, innerField.type);
+                    selectionParts.push(selection ? (innerField.name + ' ' + selection) : innerField.name);
+                }
+            });
+
+            if (selectionParts.length === 0) {
+                const query = '{ ' + field.name + ' { __typename id } }';
+                const result = await fetchGraphQL(query);
+                removeProgress();
+                const cid = 'c-' + index + '-0';
+                resultsDiv.innerHTML += '<div class="card mb-3"><div class="card-header bg-success text-white"><strong>' + escapeHtml(field.name) + '</strong> <button class="btn btn-sm btn-light float-end" data-bs-toggle="collapse" data-bs-target="#' + cid + '">Show</button></div><div id="' + cid + '" class="collapse"><div class="card-body"><pre>' + escapeHtml(query) + '</pre></div><div class="card-footer"><pre>' + escapeHtml(JSON.stringify(result, null, 2)) + '</pre></div></div></div>';
+                cardsAdded++;
+                continue;
+            }
+
+            for (let i = 1; i <= selectionParts.length; i++) {
+                const partialSelection = selectionParts.slice(0, i).join('\n                ');
+                const query = '{\n  ' + field.name + ' {\n    __typename\n    id\n    ' + partialSelection + '\n  }\n}';
+
+                const result = await fetchGraphQL(query);
+                const isError = result.errors && result.errors.length > 0;
+                const cid = 'c-' + index + '-' + i;
+
+                if (isError) {
+                    removeProgress();
+                    resultsDiv.innerHTML += '<div class="card mb-3"><div class="card-header bg-danger text-white"><strong>' + escapeHtml(field.name) + ' - Chyba na poli: ' + escapeHtml(selectionParts[i-1]) + '</strong> <button class="btn btn-sm btn-light float-end" data-bs-toggle="collapse" data-bs-target="#' + cid + '">Hide</button></div><div id="' + cid + '" class="collapse show"><div class="card-body"><pre>' + escapeHtml(query) + '</pre></div><div class="card-footer"><pre>' + escapeHtml(JSON.stringify(result, null, 2)) + '</pre></div></div></div>';
+                    break;
+                }
+
+                if (i === selectionParts.length) {
+                    resultsDiv.innerHTML += '<div class="card mb-3"><div class="card-header bg-success text-white"><strong>' + escapeHtml(field.name) + '</strong> <button class="btn btn-sm btn-light float-end" data-bs-toggle="collapse" data-bs-target="#' + cid + '">Show</button></div><div id="' + cid + '" class="collapse"><div class="card-body"><pre>' + escapeHtml(query) + '</pre></div><div class="card-footer"><pre>' + escapeHtml(JSON.stringify(result, null, 2)) + '</pre></div></div></div>';
+                    cardsAdded++;
+                    prog = document.getElementById('progress');
+                    if (prog) prog.textContent = '✓ ' + field.name + ' hotov. Spouštím další test…';
+                }
             }
         }
+
+        removeProgress();
+
+        resultsDiv.innerHTML += '<div id="progress" class="alert alert-info mt-3">Testuji Asset mutace (insert → update → delete)…</div>';
+        const mutCardId = 'mut-asset';
+        try {
+            const insertMutation = `mutation AssetInsert($asset: AssetInsertGQLModel!) {
+  assetInsert(asset: $asset) {
+    __typename
+    ... on AssetGQLModel { id lastchange name }
+    ... on AssetGQLModelInsertError { msg }
+  }
+}`;
+            const insertVars = { asset: { name: 'E2E Test Asset ' + Date.now(), inventoryCode: 'E2E-INV', description: 'Smazat po testu' } };
+            const insertResult = await fetchGraphQL(insertMutation, insertVars);
+            const insertData = insertResult.data?.assetInsert;
+            const insertErr = insertResult.errors && insertResult.errors.length > 0;
+
+            if (insertErr || !insertData || insertData.__typename !== 'AssetGQLModel') {
+                removeProgress();
+                const insertMsg = insertData?.msg ? '<p class="text-danger mb-2"><strong>Chyba:</strong> ' + escapeHtml(insertData.msg) + '</p>' : '';
+                resultsDiv.innerHTML += '<div class="card mb-3 mt-3"><div class="card-header bg-danger text-white"><strong>Asset mutace – insert selhal</strong></div><div class="card-body">' + insertMsg + '<pre>' + escapeHtml(JSON.stringify(insertResult, null, 2)) + '</pre></div></div>';
+            } else {
+                var progEl = document.getElementById('progress');
+                if (progEl) progEl.textContent = 'Insert hotov. Testuji update…';
+                const id = insertData.id;
+                const lastchange = insertData.lastchange;
+                const updateMutation = `mutation AssetUpdate($asset: AssetUpdateGQLModel!) {
+  assetUpdate(asset: $asset) {
+    __typename
+    ... on AssetGQLModel { id lastchange name }
+    ... on AssetGQLModelUpdateError { msg }
+  }
+}`;
+                const updateResult = await fetchGraphQL(updateMutation, { asset: { id, lastchange, name: 'E2E Test Asset (updated)' } });
+                const updateData = updateResult.data?.assetUpdate;
+                const updateErr = updateResult.errors && updateResult.errors.length > 0;
+                const newLastchange = updateData?.lastchange || lastchange;
+
+                if (updateErr || !updateData || updateData.__typename !== 'AssetGQLModel') {
+                    removeProgress();
+                    const updateMsg = updateData?.msg ? '<p class="text-danger mb-2"><strong>Chyba:</strong> ' + escapeHtml(updateData.msg) + '</p>' : '';
+                    resultsDiv.innerHTML += '<div class="card mb-3 mt-3"><div class="card-header bg-warning text-dark"><strong>Asset mutace – update selhal (insert proběhl)</strong></div><div class="card-body">' + updateMsg + '<pre>' + escapeHtml(JSON.stringify(updateResult, null, 2)) + '</pre></div></div>';
+                } else {
+                    progEl = document.getElementById('progress');
+                    if (progEl) progEl.textContent = 'Update hotov. Testuji delete…';
+                    const deleteMutation = `mutation AssetDelete($asset: AssetDeleteGQLModel!) {
+  assetDelete(asset: $asset) {
+    __typename
+    ... on AssetGQLModelDeleteError { msg }
+  }
+}`;
+                    const deleteResult = await fetchGraphQL(deleteMutation, { asset: { id, lastchange: newLastchange } });
+                    const deleteErr = deleteResult.errors && deleteResult.errors.length > 0;
+                    removeProgress();
+                    const deleteData = deleteResult.data?.assetDelete;
+                    if (deleteErr || (deleteData && deleteData.__typename)) {
+                        const deleteMsg = deleteData?.msg ? '<p class="text-danger mb-2"><strong>Chyba:</strong> ' + escapeHtml(deleteData.msg) + '</p>' : '';
+                        resultsDiv.innerHTML += '<div class="card mb-3 mt-3"><div class="card-header bg-warning text-dark"><strong>Asset mutace – delete selhal (insert + update proběhly)</strong></div><div class="card-body">' + deleteMsg + '<pre>' + escapeHtml(JSON.stringify(deleteResult, null, 2)) + '</pre></div></div>';
+                    } else {
+                        resultsDiv.innerHTML += '<div class="card mb-3 mt-3"><div class="card-header bg-success text-white"><strong>Asset mutace</strong> (insert → update → delete) <button class="btn btn-sm btn-light float-end" data-bs-toggle="collapse" data-bs-target="#' + mutCardId + '">Show</button></div><div id="' + mutCardId + '" class="collapse"><div class="card-body"><p>Insert → Update → Delete proběhly v pořádku.</p><pre>' + escapeHtml(JSON.stringify({ insert: insertResult.data, update: updateResult.data, delete: deleteResult.data }, null, 2)) + '</pre></div></div></div>';
+                        cardsAdded++;
+                    }
+                }
+            }
+        } catch (mutErr) {
+            document.getElementById('progress')?.remove();
+            resultsDiv.innerHTML += '<div class="card mb-3 mt-3"><div class="card-header bg-danger text-white"><strong>Asset mutace – výjimka</strong></div><div class="card-body"><pre>' + escapeHtml(mutErr.message + '\n' + mutErr.stack) + '</pre></div></div>';
+        }
+
+        removeProgress();
+        resultsDiv.innerHTML += '<div class="alert alert-secondary mt-3"><strong>Hotovo.</strong> Zelených karet (Page + mutace): ' + cardsAdded + '</div>';
+    } catch (err) {
+        resultsDiv.innerHTML = '<div class="alert alert-danger"><strong>Chyba:</strong> ' + escapeHtml(err.message) + '<pre>' + escapeHtml(err.stack) + '</pre></div>';
     }
 }
 </script>

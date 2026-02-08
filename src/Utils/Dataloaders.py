@@ -259,6 +259,8 @@ def _load_user_roles_from_systemdata(user_id: str) -> typing.List[typing.Dict[st
                 with open(data_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     roles = data.get('roles', [])
+                    roletypes = data.get('roletypes', [])
+                    roletype_id_to_name = {str(rt.get('id')): rt.get('name', '') for rt in roletypes if rt.get('id')}
                     logger.info(f"_load_user_roles_from_systemdata: Found {len(roles)} total roles in {filename}")
                     
                     user_roles = []
@@ -275,7 +277,11 @@ def _load_user_roles_from_systemdata(user_id: str) -> typing.List[typing.Dict[st
                                 end = end.replace(' ', 'T') + ':00'
                             
                             if (not start or start <= now) and (not end or end >= now):
-                                user_roles.append(role)
+                                r = dict(role)
+                                rt_id = r.get('roletype_id')
+                                if rt_id and roletype_id_to_name:
+                                    r['name'] = roletype_id_to_name.get(str(rt_id), '')
+                                user_roles.append(r)
                     
                     if user_roles:
                         logger.info(f"_load_user_roles_from_systemdata: Found {len(user_roles)} roles for user {user_id} in {filename}")
@@ -415,6 +421,27 @@ def _load_user_from_systemdata(user_id: str) -> typing.Optional[typing.Dict[str,
     return None
 
 
+class _UserRolesForRBACLoader:
+    """Loader pro UserRoleProviderExtension (uoishelpers). Volá se s params={'id': rbacobject_id, 'user_id': user_id}
+    a musí vrátit {'result': [role, ...]}, kde každá role má role['roletype']['name'] (a role['roletype']['id'])."""
+
+    async def load(self, params: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.List[typing.Dict]]:
+        user_id = params.get("user_id")
+        if not user_id:
+            return {"result": []}
+        roles_raw = _load_user_roles_from_systemdata(str(user_id))
+        # Formát očekávaný UserAccessControlExtension: role["roletype"]["name"]
+        result = []
+        for r in roles_raw or []:
+            rt_id = r.get("roletype_id")
+            name = r.get("name", "")
+            result.append({
+                **r,
+                "roletype": {"id": rt_id, "name": name},
+            })
+        return {"result": result}
+
+
 def getUserFromInfo(info: strawberry.types.Info) -> typing.Dict[str, typing.Any]:
     """Return user information from GraphQL execution context.
 
@@ -439,4 +466,4 @@ def getUserFromInfo(info: strawberry.types.Info) -> typing.Dict[str, typing.Any]
     return fallback_user
 
 
-__all__ = ["createLoadersContext", "getUserFromInfo", "_extract_demo_user_id", "_load_user_from_systemdata", "_load_user_roles_from_systemdata", "_extract_user_id_from_jwt"]
+__all__ = ["createLoadersContext", "getUserFromInfo", "_extract_demo_user_id", "_load_user_from_systemdata", "_load_user_roles_from_systemdata", "_extract_user_id_from_jwt", "_UserRolesForRBACLoader"]

@@ -110,8 +110,9 @@ async def get_context(request: Request):
     logger.info(f"get_context: asyncSessionMaker type: {type(asyncSessionMaker)}, callable: {callable(asyncSessionMaker)}")
         
     from src.Dataloaders import createLoadersContext
-    from src.Utils.Dataloaders import _extract_demo_user_id, _load_user_from_systemdata
+    from src.Utils.Dataloaders import _extract_demo_user_id, _load_user_from_systemdata, _UserRolesForRBACLoader
     context = createLoadersContext(asyncSessionMaker)
+    context["userRolesForRBACQuery_loader"] = _UserRolesForRBACLoader()
     
     # Debug: zkontroluj, jestli session_maker je správně nastaven
     if "loaders" in context:
@@ -145,6 +146,8 @@ async def get_context(request: Request):
     logger.info(f"Extracted demo_user_id: {demo_user_id}")
     
     if demo_user_id:
+        # Při použití x-demo-user-id vždy použijeme RBAC loader ze systemdata (DemoRBACLoaderExtension to přepíše)
+        result["use_demo_rbac_loader"] = True
         # Pokud je to JWT token, zkus extrahovat user_id z payloadu a načíst uživatele ze systemdata
         # JWT token může začínat 'eyJ' (base64) nebo 'Bearer eyJ'
         if demo_user_id.startswith('eyJ') or demo_user_id.startswith('Bearer ') or 'eyJ' in demo_user_id:
@@ -157,6 +160,7 @@ async def get_context(request: Request):
                 if user_data:
                     result["user"] = user_data
                     result["__original_user"] = user_data  # Ulož pro WhoAmIExtension
+                    result["user_roles"] = user_data.get("roles") or []  # uoishelpers UserAccessControlExtension může číst context["user_roles"]
                     logger.info(f"User loaded from systemdata via JWT: {user_data.get('name')} {user_data.get('surname')} ({user_data.get('id')})")
                 else:
                     # Pokud nenajdeme uživatele v systemdata, použijeme alespoň ID z JWT
@@ -172,6 +176,7 @@ async def get_context(request: Request):
             if user_data:
                 result["user"] = user_data
                 result["__original_user"] = user_data  # Ulož pro WhoAmIExtension
+                result["user_roles"] = user_data.get("roles") or []  # uoishelpers UserAccessControlExtension může číst context["user_roles"]
                 logger.info(f"User set in context: {user_data.get('name')} {user_data.get('surname')} ({user_data.get('id')})")
             else:
                 # Pokud nenajdeme uživatele v systemdata, použijeme alespoň ID
@@ -302,7 +307,7 @@ async def ui():
 @app.get("/test", response_class=FileResponse)
 async def test():
     realpath = os.path.realpath("./public/tests.html")
-    return realpath
+    return FileResponse(realpath)
 
 import prometheus_client
 @app.get("/metrics")

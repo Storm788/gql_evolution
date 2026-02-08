@@ -1,4 +1,5 @@
 import datetime
+import os
 import strawberry
 import warnings
 
@@ -46,5 +47,10 @@ from uoishelpers.schema import WhoAmIExtension, PrometheusExtension
 schema.extensions.append(WhoAmIExtension)
 schema.extensions.append(PrometheusExtension(prefix="GQL_Evolution"))
 
-from uoishelpers.gqlpermissions.RolePermissionSchemaExtension import RolePermissionSchemaExtension
-schema.extensions.append(RolePermissionSchemaExtension)
+# RolePermissionSchemaExtension přepisuje userRolesForRBACQuery_loader na GraphQLBatchLoader (gql_ug).
+# V demo režimu (DEMO=True) ho nepřidáváme – zůstane náš _UserRolesForRBACLoader z get_context (systemdata).
+if os.getenv("DEMO") != "True":
+    from uoishelpers.gqlpermissions.RolePermissionSchemaExtension import RolePermissionSchemaExtension
+    schema.extensions.append(RolePermissionSchemaExtension)
+    from .DemoRBACLoaderExtension import DemoRBACLoaderExtension
+    schema.extensions.append(DemoRBACLoaderExtension)

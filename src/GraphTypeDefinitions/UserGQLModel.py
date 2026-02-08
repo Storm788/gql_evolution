@@ -18,7 +18,9 @@ class UserGQLModel:
     id: IDType = strawberry.federation.field(external=True)
 
     @classmethod
-    async def resolve_reference(cls, id: IDType):
+    async def resolve_reference(cls, info: strawberry.types.Info, id: IDType):
+        if id is None:
+            return None
         return cls(id=id)
 
     event_invitations: typing.List[EventInvitationGQLModel] = strawberry.field(
